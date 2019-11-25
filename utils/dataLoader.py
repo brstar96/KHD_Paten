@@ -13,7 +13,7 @@ def transform_tr(self, sample):
     composed_transforms = transforms.Compose([
         tr.RandomHorizontalFlip(),
         tr.RandomScaleCrop(base_size=self.args.base_size, crop_size=self.args.crop_size),
-        # tr.FixScaleCrop(crop_size=self.args.crop_size),
+        tr.FixScaleCrop(crop_size=self.args.crop_size),
         tr.RandomGaussianBlur(),
         tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
         tr.ToTensor()])
@@ -28,7 +28,7 @@ def transform_val(self, sample):
 
     return composed_transforms(sample)
 
-def train_dataloader(storageType = 'local', input_size=128, batch_size=64, num_workers=0,):
+def train_dataloader(storageType = 'local', input_size=224, batch_size=64, num_workers=0,):
     datasetPath = Path.db_root_dir(storageType)
     if storageType == 'local':
         image_dir = os.path.join(datasetPath , 'train', 'train_data', 'images')

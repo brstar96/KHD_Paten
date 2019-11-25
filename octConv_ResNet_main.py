@@ -3,8 +3,14 @@ import os, torch
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
-
+from utils.dataLoader import train_dataloader
+from utils.tensorboard_summary import TensorboardSummary
 from utils.datasetPath import Path
+from utils.loss import buildLosses
+from utils.model_saver import Saver
+import torch.optim as optim
+from AdamW import AdamW
+from RAdam import RAdam
 
 class Trainer(object):
     def __init__(self, args):
@@ -14,13 +20,13 @@ class Trainer(object):
         # Define Saver
         self.saver = Saver(args)
         self.saver.save_experiment_config()
+
         # Define Tensorboard Summary
         self.summary = TensorboardSummary(self.saver.experiment_dir)
         self.writer = self.summary.create_summary()
 
         # Define Dataloader
-        kwargs = {'num_workers': args.workers, 'pin_memory': True}
-        self.train_loader, self.val_loader, self.test_loader, self.nclass = make_data_loader(args, **kwargs)
+        train_DataLoader = train_dataloader(storageType='local', input_size=args.base_size, batch_size=args.batch_size, num_workers=4)
         print('Dataset class : ', self.nclass)
 
         # Define network
@@ -31,39 +37,43 @@ class Trainer(object):
                         freeze_bn=args.freeze_bn)
         model.to(self.device)
 
-        train_params = [{'params': model.get_1x_lr_params(), 'lr': args.lr},
-                        {'params': model.get_10x_lr_params(), 'lr': args.lr * 10}]
-
         # Define Optimizer
-        optimizer = torch.optim.SGD(train_params, momentum=args.momentum,
-                                    weight_decay=args.weight_decay, nesterov=args.nesterov)
+        if args.optimizer.lower() == 'sgd':
+            optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
+        elif args.optimizer.lower() == 'adam':
+            optimizer = AdamW(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), weight_decay=args.weight_decay)
+        elif args.optimizer.lower() == 'radam':
+            optimizer = RAdam(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), weight_decay=args.weight_decay)
+        else:
+            print("Wrong optimizer args input.")
+            raise NotImplementedError
+
+        # Define learning rate scheduler
+        if args.lr_scheduler.lower() == 'steplr':
+            self.scheduler = optim.plr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+        elif args.lr_scheduler.lower() == 'multisteplr':
+            '''
+            Assuming optimizer uses lr = 0.05 for all groups,
+            lr = 0.05     if epoch < 30
+            lr = 0.005    if 30 <= epoch < 80
+            lr = 0.0005   if epoch >= 80. (gamma : Multiplicative factor of learning rate decay. Default: 0.1.)
+            '''
+            self.scheduler = optim.plr_scheduler.MultiStepLR(optimizer, milestones=[30,80], gamma=0.1)
+        elif args.lr_scheduler.lower() == 'warmupcosineschedule': # 11/25 여기서부터 구현하기
+            self.scheduler = optim.plr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+        elif args.lr_scheduler.lower() == 'warmupcosinewithhardrestartsschedule':
+            self.scheduler = optim.plr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+        else:
+            print("Wrong lr_scheduler args input.")
+            raise NotImplementedError
 
         # Define Criterion
-        # whether to use class balanced weights
-        if args.use_balanced_weights:
-            classes_weights_path = os.path.join(Path.db_root_dir(args.dataset), args.dataset + '_classes_weights.npy')
-            if os.path.isfile(classes_weights_path):
-                weight = np.load(classes_weights_path)
-            else:
-                weight = calculate_weigths_labels(args.dataset, self.train_loader, self.nclass)
-            weight = torch.from_numpy(weight.astype(np.float32))
-        else:
-            weight = None
+        weight = None # Calculate class weight when dataset is strongly imbalanced. (see pytorch deeplabV3 code's main.py)
         self.criterion = buildLosses(weight=weight, cuda=args.cuda).build_loss(mode=args.loss_type)
         self.model, self.optimizer = model, optimizer
 
         # Define Evaluator
         self.evaluator = Evaluator(self.nclass)
-        # Define lr scheduler
-        self.scheduler = LR_Scheduler(args.lr_scheduler, args.lr,
-                                      args.epochs, len(self.train_loader))
-
-        # Using cuda
-        if args.cuda:
-            self.model = torch.nn.DataParallel(self.model, device_ids=self.args.gpu_ids)
-            patch_replication_callback(self.model)
-            # self.model = self.model.cuda()
-            self.model = self.model.to(self.device)
 
         # Resuming checkpoint
         self.best_pred = 0.0
@@ -209,6 +219,8 @@ def main():
                         metavar='N', help='input batch size for training')
     parser.add_argument('--test_batch_size', type=int, default=32,
                         metavar='N', help='input batch size for testing (default: auto)')
+    parser.add_argument('--class_num', type=int, default=None,
+                        help='Set class number. If None, class_num will be set according to dataset`s class number.')
 
     # Set optimizer params for training network.
     parser.add_argument('--lr', type=float, default=None,
@@ -216,6 +228,11 @@ def main():
     parser.add_argument('--lr_scheduler', type=str, default='WarmupCosineSchedule',
                         choices=['StepLR', 'MultiStepLR', 'WarmupCosineSchedule', 'WarmupCosineWithHardRestartsSchedule'],
                         help='Set lr scheduler mode: (default: WarmupCosineSchedule)')
+    parser.add_argument('--optim', type=str, default='RAdam',
+                        choices=['SGD', 'ADAM', 'AdamW', 'RAdam'],
+                        help='Set optimizer type. (default: RAdam)')
+    parser.add_argument('--beta1', default=0.9, type=float, help='beta1 for adam')
+    parser.add_argument('--beta2', default=0.999, type=float, help='beta2 for adam')
     parser.add_argument('--momentum', type=float, default=0.9,
                         metavar='M', help='Set momentum value for pytorch`s SGD optimizer. (default: 0.9)')
 
@@ -233,24 +250,28 @@ def main():
             args.gpu_ids = [int(s) for s in args.gpu_ids.split(',')]
         except ValueError:
             raise ValueError('Argument --gpu_ids must be a comma-separated list of integers only')
-
     if args.sync_bn is None:
         if args.cuda and len(args.gpu_ids) > 1:
             args.sync_bn = True
         else:
             args.sync_bn = False
 
-        # default settings for epochs, batch_size and lr
-        if args.epochs is None:
-            epoches = {'local': 150, 'KHD_NSML': 100, }
-            args.epochs = epoches[args.dataset]
+    # default settings for epochs, lr and class_num of dataset.
+    if args.epochs is None:
+        epoches = {'local': 150, 'KHD_NSML': 100, }
+        args.epochs = epoches[args.dataset]
 
-        if args.lr is None:
-            lrs = {'local': 0.1, 'KHD_NSML': 0.1,}
+    if args.lr is None:
+        lrs = {'local': 0.1, 'KHD_NSML': 0.1,}
+
+    if args.class_num is None:
+        class_nums = {'local': 192, 'KHD_NSML': None, } # change KHD_NSML's class num in 29, september
+        args.class_num  = class_nums[args.dataset]
 
     if args.checkname is None:
         now = datetime.now()
         args.checkname = str(args.dataset) + '-' + str(args.backbone) + ('%s-%s-%s' % (now.year, now.month, now.day))
+
     print(args)
     torch.manual_seed(args.seed)
 
