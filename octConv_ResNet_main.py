@@ -8,6 +8,7 @@ from utils.tensorboard_summary import TensorboardSummary
 from utils.datasetPath import Path
 from utils.loss import buildLosses
 from utils.model_saver import Saver
+from networks import initialize_model
 import torch.optim as optim
 from AdamW import AdamW
 from RAdam import RAdam
@@ -30,11 +31,8 @@ class Trainer(object):
         print('Dataset class : ', self.nclass)
 
         # Define network
-        model = DeepLab(num_classes=self.nclass,
-                        backbone=args.backbone,
-                        output_stride=args.out_stride,
-                        sync_bn=args.sync_bn,
-                        freeze_bn=args.freeze_bn)
+
+        model = initialize_model(model_name, embedding_dim, feature_extracting, use_pretrained=True)
         model.to(self.device)
 
         # Define Optimizer
@@ -221,6 +219,8 @@ def main():
                         metavar='N', help='input batch size for testing (default: auto)')
     parser.add_argument('--class_num', type=int, default=None,
                         help='Set class number. If None, class_num will be set according to dataset`s class number.')
+    parser.add_argument('--use_pretrained', type=bool, default=True) # pre-trained model 사용여부(pytorch model zoo에 있는 모델 위주로 사용 권장)
+    parser.add_argument('--feature_extracting', type=bool, default=True) #
 
     # Set optimizer params for training network.
     parser.add_argument('--lr', type=float, default=None,
