@@ -3,6 +3,7 @@ import numpy as np
 from tqdm import tqdm
 from datetime import datetime
 from sklearn.model_selection import StratifiedKFold, KFold
+from utils.metrics import Evaluator
 from utils.dataLoader import train_dataloader
 from utils.tensorboard_summary import TensorboardSummary
 from utils import lr_scheduler
@@ -18,26 +19,25 @@ from RAdam import RAdam
 
 warnings.filterwarnings('ignore')
 
-def bind_model(model):
-    def save(dir_name):
-        os.makedirs(dir_name, exist_ok=True)
-        torch.save(model.state_dict(),os.path.join(dir_name, 'model'))
-        print('model saved!')
-
-    def load(dir_name):
-        model.load_state_dict(torch.load(os.path.join(dir_name, 'model')))
-        model.eval()
-        print('model loaded!')
-
-    def infer(data): ## 해당 부분은 data loader의 infer_func을 의미
-        X = preprocessing(data)
-        with torch.no_grad():
-            X = torch.from_numpy(X).float().to(device)
-            pred = model.forward(X)
-        print('predicted')
-        return pred
-
-    # nsml.bind(save=save, load=load, infer=infer)
+# def bind_model(model):
+#     def save(dir_name):
+#         os.makedirs(dir_name, exist_ok=True)
+#         torch.save(model.state_dict(),os.path.join(dir_name, 'model'))
+#         print('model saved!')
+#
+#     def load(dir_name):
+#         model.load_state_dict(torch.load(os.path.join(dir_name, 'model')))
+#         model.eval()
+#         print('model loaded!')
+#
+#     def infer(data): ## 해당 부분은 data loader의 infer_func을 의미
+#         X = preprocessing(data)
+#         with torch.no_grad():
+#             X = torch.from_numpy(X).float().to(device)
+#             pred = model.forward(X)
+#         print('predicted')
+#         return pred
+#     nsml.bind(save=save, load=load, infer=infer)
 
 class Trainer(object):
     def __init__(self, args):
@@ -94,6 +94,9 @@ class Trainer(object):
         else:
             print("Wrong optimizer args input.")
             raise NotImplementedError
+
+        # Define Evaluator (F1, Acc_class 등의 metric 계산을 정의한 클래스)
+        self.evaluator = Evaluator(self.nclass)
 
         # Define learning rate scheduler
         self.scheduler = lr_scheduler.defineLR(args, optimizer, length_train_dataloader)
@@ -191,7 +194,9 @@ class Trainer(object):
 
     def validation(self, epoch):
         self.model.eval()
-        self.evaluator.reset()
+        self.evaluator.reset() # metric이 정의되어 있는 evaluator클래스 초기화 (confusion matrix 초기화 수행)
+
+        # train_loader 아래에 val_loader 추가해야 함. (11/26)
         tbar = tqdm(self.val_loader, desc='\r')
         test_loss = 0.0
         for i, sample in enumerate(tbar):
@@ -206,27 +211,22 @@ class Trainer(object):
             tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
             pred = output.data.cpu().numpy()
             target = target.cpu().numpy()
-            # print(target.tolist())
             pred = np.argmax(pred, axis=1)
             # Add batch sample into evaluator
             self.evaluator.add_batch(target, pred)
 
-        # Fast test during the training
-        Acc = self.evaluator.Pixel_Accuracy()
-        Acc_class = self.evaluator.Pixel_Accuracy_Class()
-        mIoU = self.evaluator.Mean_Intersection_over_Union()
-        FWIoU = self.evaluator.Frequency_Weighted_Intersection_over_Union()
-        self.writer.add_scalar('val/total_loss_epoch', test_loss, epoch)
-        self.writer.add_scalar('val/mIoU', mIoU, epoch)
-        self.writer.add_scalar('val/Acc', Acc, epoch)
-        self.writer.add_scalar('val/Acc_class', Acc_class, epoch)
-        self.writer.add_scalar('val/fwIoU', FWIoU, epoch)
+        # Print validation log during the training
+        F1 = self.evaluator.F1_Score()
+        Acc_class = self.evaluator.Accuracy_Class()
+        self.writer.add_scalar('val/mIoU', F1, epoch)
+        self.writer.add_scalar('val/Acc', Acc_class, epoch)
         print('Validation:')
         print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
-        print("Acc:{}, Acc_class:{}, mIoU:{}, fwIoU: {}".format(Acc, Acc_class, mIoU, FWIoU))
+        print("F1-Score:{}, Acc_class:{}".format(F1, Acc_class))
         print('Loss: %.3f' % test_loss)
 
-        new_pred = mIoU
+        # F1 metric 성능에 따라 제일 좋은 모델의 checkpoint를 저장
+        new_pred = F1
         if new_pred > self.best_pred:
             is_best = True
             self.best_pred = new_pred
