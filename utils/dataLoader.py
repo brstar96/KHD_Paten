@@ -1,14 +1,33 @@
 from __future__ import print_function, division
-import os, cv2, torch
+import os, cv2, torch, time
 from PIL import Image
 import pandas as pd
 import numpy as np
 import utils.custom_transforms as tr
 from torch.utils.data import Dataset, DataLoader
 from torchvision import transforms
-from utils.datasetPath import Path
 
 # 전처리
+def crop_boxing_img(img_name, TRAIN_IMG_PATH, TEST_IMG_PATH, df_train, df_test, margin=-4, size=(224, 224)):
+    # Bbox croping function for KaKR 3rd car classification competition
+    if img_name.split('_')[0] == 'train':
+        PATH = TRAIN_IMG_PATH
+        data = df_train
+    else:
+        PATH = TEST_IMG_PATH
+        data = df_test
+
+    img = Image.open(os.path.join(PATH, img_name))
+    pos = data.loc[data["img_file"] == img_name, ['bbox_x1', 'bbox_y1', 'bbox_x2', 'bbox_y2']].values.reshape(-1)
+
+    width, height = img.size
+    x1 = max(0, pos[0] - margin)
+    y1 = max(0, pos[1] - margin)
+    x2 = min(pos[2] + margin, width)
+    y2 = min(pos[3] + margin, height)
+
+    return img.crop((x1, y1, x2, y2)).resize(size)
+
 def transform_tr(self, sample):
     composed_transforms = transforms.Compose([
         tr.RandomHorizontalFlip(),
@@ -28,13 +47,31 @@ def transform_val(self, sample):
 
     return composed_transforms(sample)
 
-def train_dataloader(storageType = 'local', input_size=224, batch_size=64, num_workers=0,):
-    datasetPath = Path.db_root_dir(storageType)
+def train_dataloader(storageType = 'local', DATA_PATH = None, input_size=224, batch_size=64, num_workers=4,):
     if storageType == 'local':
-        image_dir = os.path.join(datasetPath , 'train', 'train_data', 'images')
-        train_label_path = os.path.join(datasetPath , 'train', 'train_label')
-        train_meta_path = os.path.join(datasetPath , 'train', 'train_data', 'train_with_valid_tags.csv')
-        train_meta_data = pd.read_csv(train_meta_path, delimiter=',', header=0)
+        df_train = pd.read_csv(os.path.join(DATA_PATH, 'train.csv'))
+        df_test = pd.read_csv(os.path.join(DATA_PATH, 'test.csv'))
+        df_class = pd.read_csv(os.path.join(DATA_PATH, 'class.csv'))
+
+        # Bbox를 사용해 자른 이미지를 저장할 디렉토리
+        TRAIN_CROPPED_PATH = '../cropped_train'
+        TEST_CROPPED_PATH = '../cropped_test'
+
+        # 잘린 이미지를 저장(저장할 경로가 없을 시 새 디렉토리 생성)
+        if (os.path.isdir(TRAIN_CROPPED_PATH) == False):
+            os.mkdir(TRAIN_CROPPED_PATH)
+        if (os.path.isdir(TEST_CROPPED_PATH) == False):
+            os.mkdir(TEST_CROPPED_PATH)
+        for i, row in df_train.iterrows():
+            cropped = crop_boxing_img(row['img_file'])
+            cropped.save(os.path.join(TRAIN_CROPPED_PATH, row['img_file']))
+        for i, row in df_test.iterrows():
+            cropped = crop_boxing_img(row['img_file'])
+            cropped.save(os.path.join(TEST_CROPPED_PATH, row['img_file']))
+
+        df_train['class'] = df_train['class'].astype('str')
+        df_train = df_train[['img_file', 'class']]
+        df_test = df_test[['img_file']]
 
         dataloader = DataLoader(localData(
             image_dir, train_meta_data, label_path=train_label_path,
@@ -46,20 +83,32 @@ def train_dataloader(storageType = 'local', input_size=224, batch_size=64, num_w
         return dataloader
 
     elif storageType == 'KHD_NSML':
-        # 아래 경로는 데이터셋 형태에 따라 수정할것.
-        image_dir = os.path.join(datasetPath, 'train', 'train_data', 'images')
-        train_label_path = os.path.join(datasetPath, 'train', 'train_label')
-        train_meta_path = os.path.join(datasetPath, 'train', 'train_data', 'train_with_valid_tags.csv')
-        train_meta_data = pd.read_csv(train_meta_path, delimiter=',', header=0)
+        t = time.time()
+        print('Data loading...')
+        data_path = []  # data path 저장을 위한 변수
+        labels = []  # 테스트 id 순서 기록
+        ## 하위 데이터 path 읽기
+        for dir_name, _, _ in os.walk(root_path):
+            try:
+                data_id = dir_name.split('/')[-1]
+                int(data_id)
+            except:
+                pass
+            else:
+                data_path.append(dir_name)
+                labels.append(int(data_id[0]))
 
-        dataloader = DataLoader(KHDdataset_NSML(
-                            image_dir, train_meta_data, label_path=train_label_path,
-                            transform=transforms.Compose([transforms.Resize((input_size, input_size)), transforms.ToTensor()])),
-                            batch_size=batch_size,
-                            shuffle=True,
-                            num_workers=num_workers,
-                            pin_memory=True)
-        return dataloader
+        ## 데이터만 읽기
+        data = []  # img저장을 위한 list
+        for d_path in data_path:
+            sample = np.load(d_path + '/mammo.npz')['arr_0']
+            data.append(sample)
+        data = np.array(data)  ## list to numpy
+
+        print('Dataset Reading Success \n Reading time', time.time() - t, 'sec')
+        print('Dataset:', data.shape, 'np.array.shape(files, views, width, height)')
+
+        return data, labels
     else:
         raise NotImplementedError
 

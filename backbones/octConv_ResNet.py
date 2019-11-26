@@ -5,7 +5,6 @@ __all__ = ['OctResNet', 'oct_resnet26', 'oct_resnet50', 'oct_resnet101', 'oct_re
 
 class Bottleneck(nn.Module):
     expansion = 4
-
     def __init__(self, inplanes, planes, stride=1, downsample=None, groups=1,
                  base_width=64, alpha_in=0.5, alpha_out=0.5, norm_layer=None, output=False):
         super(Bottleneck, self).__init__()

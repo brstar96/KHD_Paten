@@ -1,10 +1,10 @@
-import argparse, logging, os, torch
+import argparse, logging, os, torch, warnings
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
+from sklearn.model_selection import StratifiedKFold, KFold
 from utils.dataLoader import train_dataloader
 from utils.tensorboard_summary import TensorboardSummary
-from utils.datasetPath import Path
 from utils import lr_scheduler
 from utils.loss import buildLosses
 from utils.model_saver import Saver
@@ -13,6 +13,31 @@ from torch.backends import cudnn
 from torch import optim
 from AdamW import AdamW
 from RAdam import RAdam
+# import nsml
+# from nsml.constants import DATASET_PATH, GPU_NUM
+
+warnings.filterwarnings('ignore')
+
+def bind_model(model):
+    def save(dir_name):
+        os.makedirs(dir_name, exist_ok=True)
+        torch.save(model.state_dict(),os.path.join(dir_name, 'model'))
+        print('model saved!')
+
+    def load(dir_name):
+        model.load_state_dict(torch.load(os.path.join(dir_name, 'model')))
+        model.eval()
+        print('model loaded!')
+
+    def infer(data): ## 해당 부분은 data loader의 infer_func을 의미
+        X = preprocessing(data)
+        with torch.no_grad():
+            X = torch.from_numpy(X).float().to(device)
+            pred = model.forward(X)
+        print('predicted')
+        return pred
+
+    # nsml.bind(save=save, load=load, infer=infer)
 
 class Trainer(object):
     def __init__(self, args):
@@ -28,7 +53,16 @@ class Trainer(object):
         self.writer = self.summary.create_summary()
 
         # Define Dataloader
-        train_DataLoader = train_dataloader(storageType='local', input_size=args.base_size, batch_size=args.batch_size, num_workers=4)
+        if args.dataset == 'local':
+            parent_dir = os.path.join(os.getcwd(), '../')
+            dataset_root_path = os.path.join(parent_dir, '/2019-3rd-ml-month-with-kakr/')
+        elif args.dataset == 'KHD_NSML':
+            dataset_root_path = None # 대회날 dataset_root_path = DATASET_PATH 으로 변경
+        else:
+            print("Invalid dataset type.")
+            raise ValueError('Argument --dataset must be `local` or `KHD_NSML`.')
+
+        train_DataLoader = train_dataloader(storageType='local', DATA_PATH=dataset_root_path, input_size=args.base_size, batch_size=args.batch_size, num_workers=4)
         length_train_dataloader = len(train_DataLoader)
         print('Dataset class : ', self.nclass)
 
@@ -53,7 +87,7 @@ class Trainer(object):
         # Define Optimizer
         if args.optimizer.lower() == 'sgd':
             optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-        elif args.optimizer.lower() == 'adam':
+        elif args.optimizer.lower() == 'adamw':
             optimizer = AdamW(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), weight_decay=args.weight_decay)
         elif args.optimizer.lower() == 'radam':
             optimizer = RAdam(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), weight_decay=args.weight_decay)
@@ -225,6 +259,8 @@ def main():
                         help='base image size')
     parser.add_argument('--crop_size', type=int, default=224,
                         help='crop image size')
+    parser.add_argument('--k_folds', type=int, default=5,
+                        help='Set k_folds params for stratified K-fold cross validation.')
     parser.add_argument('--sync_bn', type=bool, default=None,
                         help='Whether to use sync bn (default: auto)')
     parser.add_argument('--freeze_bn', type=bool, default=False,
@@ -284,9 +320,12 @@ def main():
 
     if args.lr is None:
         lrs = {'local': 0.1, 'KHD_NSML': 0.1,}
+        args.lr = lrs[args.dataset]
 
     if args.class_num is None:
-        class_nums = {'local': 192, 'KHD_NSML': None, } # change KHD_NSML's class num in 29, september
+        # local은 KaKR 3rd 자동차 차종분류 데이터셋인 경우 192개의 차종 클래스
+        # KHD_NSML은 정상(normal), 양성(benign), 악성(malignant) 3개의 클래스
+        class_nums = {'local': 192, 'KHD_NSML': 3, }
         args.class_num  = class_nums[args.dataset]
 
     if args.checkname is None:

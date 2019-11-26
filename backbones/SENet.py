@@ -163,8 +163,7 @@ class SEResNetBottleneck(Bottleneck):
     """
     expansion = 4
 
-    def __init__(self, inplanes, planes, groups, reduction, stride=1,
-                 downsample=None):
+    def __init__(self, inplanes, planes, groups, reduction, stride=1, downsample=None):
         super(SEResNetBottleneck, self).__init__()
         self.conv1 = nn.Conv2d(inplanes, planes, kernel_size=1, bias=False,
                                stride=stride)
