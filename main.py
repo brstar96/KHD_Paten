@@ -1,15 +1,16 @@
-import argparse
-import os, torch
+import argparse, logging, os, torch
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
 from utils.dataLoader import train_dataloader
 from utils.tensorboard_summary import TensorboardSummary
 from utils.datasetPath import Path
+from utils import lr_scheduler
 from utils.loss import buildLosses
 from utils.model_saver import Saver
 from networks import initialize_model
-import torch.optim as optim
+from torch.backends import cudnn
+from torch import optim
 from AdamW import AdamW
 from RAdam import RAdam
 
@@ -28,12 +29,26 @@ class Trainer(object):
 
         # Define Dataloader
         train_DataLoader = train_dataloader(storageType='local', input_size=args.base_size, batch_size=args.batch_size, num_workers=4)
+        length_train_dataloader = len(train_DataLoader)
         print('Dataset class : ', self.nclass)
 
         # Define network
-
-        model = initialize_model(model_name, embedding_dim, feature_extracting, use_pretrained=True)
+        model = initialize_model(model_name=args.backbone, use_pretrained=True)
         model.to(self.device)
+
+        # Gather the parameters to be optimized/updated.
+        params_to_update = model.parameters()
+        print("Params to learn:")
+        if args.feature_extracting:
+            params_to_update = []
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    params_to_update.append(param)
+                    print("\t", name)
+        else:
+            for name, param in model.named_parameters():
+                if param.requires_grad:
+                    print("\t", name)
 
         # Define Optimizer
         if args.optimizer.lower() == 'sgd':
@@ -47,31 +62,38 @@ class Trainer(object):
             raise NotImplementedError
 
         # Define learning rate scheduler
-        if args.lr_scheduler.lower() == 'steplr':
-            self.scheduler = optim.plr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-        elif args.lr_scheduler.lower() == 'multisteplr':
-            '''
-            Assuming optimizer uses lr = 0.05 for all groups,
-            lr = 0.05     if epoch < 30
-            lr = 0.005    if 30 <= epoch < 80
-            lr = 0.0005   if epoch >= 80. (gamma : Multiplicative factor of learning rate decay. Default: 0.1.)
-            '''
-            self.scheduler = optim.plr_scheduler.MultiStepLR(optimizer, milestones=[30,80], gamma=0.1)
-        elif args.lr_scheduler.lower() == 'warmupcosineschedule': # 11/25 여기서부터 구현하기
-            self.scheduler = optim.plr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-        elif args.lr_scheduler.lower() == 'warmupcosinewithhardrestartsschedule':
-            self.scheduler = optim.plr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
-        else:
-            print("Wrong lr_scheduler args input.")
-            raise NotImplementedError
+        self.scheduler = lr_scheduler.defineLR(args, optimizer, length_train_dataloader)
 
         # Define Criterion
         weight = None # Calculate class weight when dataset is strongly imbalanced. (see pytorch deeplabV3 code's main.py)
         self.criterion = buildLosses(weight=weight, cuda=args.cuda).build_loss(mode=args.loss_type)
         self.model, self.optimizer = model, optimizer
 
-        # Define Evaluator
-        self.evaluator = Evaluator(self.nclass)
+        use_amp = False
+        if has_apex and args.amp:
+            model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
+            use_amp = True
+        if args.local_rank == 0:
+            logging.info('NVIDIA APEX {}. AMP {}.'.format(
+                'installed' if has_apex else 'not installed', 'on' if use_amp else 'off'))
+
+        if args.distributed:
+            if args.sync_bn:
+                try:
+                    if has_apex:
+                        model = convert_syncbn_model(model)
+                    else:
+                        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+                    if args.local_rank == 0:
+                        logging.info('Converted model to use Synchronized BatchNorm.')
+                except Exception as e:
+                    logging.error('Failed to enable Synchronized BatchNorm. Install Apex or Torch >= 1.1')
+            if has_apex:
+                model = DDP(model, delay_allreduce=True)
+            else:
+                if args.local_rank == 0:
+                    logging.info("Using torch DistributedDataParallel. Install NVIDIA Apex for Apex DDP.")
+                model = DDP(model, device_ids=[args.local_rank])  # can use device str in Torch >= 1.1
 
         # Resuming checkpoint
         self.best_pred = 0.0
@@ -89,10 +111,6 @@ class Trainer(object):
             self.best_pred = checkpoint['best_pred']
             print("=> loaded checkpoint '{}' (epoch {})"
                   .format(args.resume, checkpoint['epoch']))
-
-        # Clear start epoch if fine-tuning
-        if args.ft:
-            args.start_epoch = 0
 
     def training(self, epoch):
         train_loss = 0.0
@@ -189,7 +207,10 @@ def main():
     # Set base parameters (dataset path, backbone name etc...)
     parser = argparse.ArgumentParser(description="This code is for testing various octConv+ResNet.")
     parser.add_argument('--backbone', type=str, default='oct_resnet50',
-                        choices=['oct_resnet50', 'oct_resnet101', 'oct_resnet152', 'oct_resnet200'],
+                        choices=['resnet101', 'resnet152' # Original ResNet 
+                            'resnext50_32x4d', 'resnext101_32x8d', # Modified ResNet
+                            'oct_resnet50', 'oct_resnet101', 'oct_resnet152', 'oct_resnet200', # OctConv + Original ResNet
+                            'senet154', 'se_resnet101', 'se_resnet152', 'se_resnext50_32x4d', 'se_resnext101_32x4d',], # Squeeze and excitation module based models
                         help='Set backbone name')
     parser.add_argument('--dataset', type=str, default='local',
                         choices=['local', 'KHD_NSML'],
@@ -287,4 +308,14 @@ def main():
     trainer.writer.close()
 
 if __name__ == "__main__":
+    try:
+        from apex import amp
+        from apex.parallel import DistributedDataParallel as DDP
+        from apex.parallel import convert_syncbn_model
+        has_apex = True
+    except ImportError:
+        from torch.nn.parallel import DistributedDataParallel as DDP
+        has_apex = False
+
+    cudnn.benchmark = True
     main()

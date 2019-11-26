@@ -1,74 +1,131 @@
-'''
-Pytorch 기본제공 lr scheduler 이외에 custom lr scheduler를 추가하고 싶을 때 사용하는 .py입니다.
-'''
+# coding=utf-8
+# Copyright 2018 The Google AI Language Team Authors and The HuggingFace Inc. team.
+#
+# Licensed under the Apache License, Version 2.0 (the "License");
+# you may not use this file except in compliance with the License.
+# You may obtain a copy of the License at
+#
+#     http://www.apache.org/licenses/LICENSE-2.0
+#
+# Unless required by applicable law or agreed to in writing, software
+# distributed under the License is distributed on an "AS IS" BASIS,
+# WITHOUT WARRANTIES OR CONDITIONS OF ANY KIND, either express or implied.
+# See the License for the specific language governing permissions and
+# limitations under the License.
+"""PyTorch optimization for BERT model."""
 
-##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
-## Created by: Hang Zhang
-## ECE Department, Rutgers University
-## Email: zhang.hang@rutgers.edu
-## Copyright (c) 2017
-##
-## This source code is licensed under the MIT-style license found in the
-## LICENSE file in the root directory of this source tree
-##+++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++++
+import logging, math, torch
+import torch.optim as optim
+from torch import optim
+from torch.optim.lr_scheduler import LambdaLR
 
-import math
+logger = logging.getLogger(__name__)
 
-class LR_Scheduler(object):
-    """Learning Rate Scheduler
-
-    Step mode: ``lr = baselr * 0.1 ^ {floor(epoch-1 / lr_step)}``
-
-    Cosine mode: ``lr = baselr * 0.5 * (1 + cos(iter/maxiter))``
-
-    Poly mode: ``lr = baselr * (1 - iter/maxiter) ^ 0.9``
-
-    Args:
-        args:
-          :attr:`args.lr_scheduler` lr scheduler mode (`cos`, `poly`),
-          :attr:`args.lr` base learning rate, :attr:`args.epochs` number of epochs,
-          :attr:`args.lr_step`
-
-        iters_per_epoch: number of iterations per epoch
+class ConstantLRSchedule(LambdaLR):
+    """ Constant learning rate schedule.
     """
-    def __init__(self, mode, base_lr, num_epochs, iters_per_epoch=0,
-                 lr_step=0, warmup_epochs=0):
-        self.mode = mode
-        print('Using {} LR Scheduler!'.format(self.mode))
-        self.lr = base_lr
-        if mode == 'step':
-            assert lr_step
-        self.lr_step = lr_step
-        self.iters_per_epoch = iters_per_epoch
-        self.N = num_epochs * iters_per_epoch
-        self.epoch = -1
-        self.warmup_iters = warmup_epochs * iters_per_epoch
+    def __init__(self, optimizer, last_epoch=-1):
+        super(ConstantLRSchedule, self).__init__(optimizer, lambda _: 1.0, last_epoch=last_epoch)
 
-    def __call__(self, optimizer, i, epoch, best_pred):
-        T = epoch * self.iters_per_epoch + i
-        if self.mode == 'cos':
-            lr = 0.5 * self.lr * (1 + math.cos(1.0 * T / self.N * math.pi))
-        elif self.mode == 'poly':
-            lr = self.lr * pow((1 - 1.0 * T / self.N), 0.9)
-        elif self.mode == 'step':
-            lr = self.lr * (0.1 ** (epoch // self.lr_step))
-        else:
-            raise NotImplemented
-        # warm up lr schedule
-        if self.warmup_iters > 0 and T < self.warmup_iters:
-            lr = lr * 1.0 * T / self.warmup_iters
-        if epoch > self.epoch:
-            print('\n=>Epoches %i, learning rate = %.4f, \
-                previous best = %.4f' % (epoch, lr, best_pred))
-            self.epoch = epoch
-        assert lr >= 0
-        self._adjust_learning_rate(optimizer, lr)
+class WarmupConstantSchedule(LambdaLR):
+    """ Linear warmup and then constant.
+        Linearly increases learning rate schedule from 0 to 1 over `warmup_steps` training steps.
+        Keeps learning rate schedule equal to 1. after warmup_steps.
+    """
+    def __init__(self, optimizer, warmup_steps, last_epoch=-1):
+        self.warmup_steps = warmup_steps
+        super(WarmupConstantSchedule, self).__init__(optimizer, self.lr_lambda, last_epoch=last_epoch)
 
-    def _adjust_learning_rate(self, optimizer, lr):
-        if len(optimizer.param_groups) == 1:
-            optimizer.param_groups[0]['lr'] = lr
-        else:
-            # enlarge the lr at the head
-            optimizer.param_groups[0]['lr'] = lr
-            for i in range(1, len(optimizer.param_groups)):
-                optimizer.param_groups[i]['lr'] = lr * 10
+    def lr_lambda(self, step):
+        if step < self.warmup_steps:
+            return float(step) / float(max(1.0, self.warmup_steps))
+        return 1.
+
+class WarmupLinearSchedule(LambdaLR):
+    """ Linear warmup and then linear decay.
+        Linearly increases learning rate from 0 to 1 over `warmup_steps` training steps.
+        Linearly decreases learning rate from 1. to 0. over remaining `t_total - warmup_steps` steps.
+    """
+
+    def __init__(self, optimizer, warmup_steps, t_total, last_epoch=-1):
+        self.warmup_steps = warmup_steps
+        self.t_total = t_total
+        super(WarmupLinearSchedule, self).__init__(optimizer, self.lr_lambda, last_epoch=last_epoch)
+
+    def lr_lambda(self, step):
+        if step < self.warmup_steps:
+            return float(step) / float(max(1, self.warmup_steps))
+        return max(0.0, float(self.t_total - step) / float(max(1.0, self.t_total - self.warmup_steps)))
+
+class WarmupCosineSchedule(LambdaLR):
+    """ Linear warmup and then cosine decay.
+        Linearly increases learning rate from 0 to 1 over `warmup_steps` training steps.
+        Decreases learning rate from 1. to 0. over remaining `t_total - warmup_steps` steps following a cosine curve.
+        If `cycles` (default=0.5) is different from default, learning rate follows cosine function after warmup.
+    """
+    def __init__(self, optimizer, warmup_steps, t_total, cycles=.5, last_epoch=-1):
+        self.warmup_steps = warmup_steps
+        self.t_total = t_total
+        self.cycles = cycles
+        super(WarmupCosineSchedule, self).__init__(optimizer, self.lr_lambda, last_epoch=last_epoch)
+
+    def lr_lambda(self, step):
+        if step < self.warmup_steps:
+            return float(step) / float(max(1.0, self.warmup_steps))
+        # progress after warmup
+        progress = float(step - self.warmup_steps) / float(max(1, self.t_total - self.warmup_steps))
+        return max(0.0, 0.5 * (1. + math.cos(math.pi * float(self.cycles) * 2.0 * progress)))
+
+class WarmupCosineWithHardRestartsSchedule(LambdaLR):
+    """ Linear warmup and then cosine cycles with hard restarts.
+        Linearly increases learning rate from 0 to 1 over `warmup_steps` training steps.
+        If `cycles` (default=1.) is different from default, learning rate follows `cycles` times a cosine decaying
+        learning rate (with hard restarts).
+    """
+
+    def __init__(self, optimizer, warmup_steps, t_total, cycles=1., last_epoch=-1):
+        self.warmup_steps = warmup_steps
+        self.t_total = t_total
+        self.cycles = cycles
+        super(WarmupCosineWithHardRestartsSchedule, self).__init__(optimizer, self.lr_lambda, last_epoch=last_epoch)
+
+    def lr_lambda(self, step):
+        if step < self.warmup_steps:
+            return float(step) / float(max(1, self.warmup_steps))
+        # progress after warmup
+        progress = float(step - self.warmup_steps) / float(max(1, self.t_total - self.warmup_steps))
+        if progress >= 1.0:
+            return 0.0
+        return max(0.0, 0.5 * (1. + math.cos(math.pi * ((float(self.cycles) * progress) % 1.0))))
+
+def defineLR(args, optimizer,length_train_dataloader):
+    warmup_steps = int(length_train_dataloader * 0.15)
+    # 파이토치 기본제공 learning rate scheduler
+    if args.lr_scheduler.lower() == 'steplr':
+        scheduler = optim.plr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)
+    elif args.lr_scheduler.lower() == 'multisteplr':
+        '''
+        - milestones : 해당 epoch마다 lr을 *gamma배만큼 decay 
+        - gamma : Multiplicative factor of learning rate decay. Default: 0.1.
+        '''
+        scheduler = optim.plr_scheduler.MultiStepLR(optimizer=optimizer, milestones=[2, 5, 10, 15, 30], gamma=0.5)
+    elif args.lr_scheduler.lower() == 'reducelronplateau':
+        scheduler = optim.plr_scheduler.ReduceLROnPlateau(optimizer=optimizer, mode='min', factor=0.5, patience=3, )
+    elif args.lr_scheduler.lower() == 'cosineschedule':
+        scheduler = optim.plr_scheduler.CosineAnnealingLR(optimizer=optimizer, T_max=10, eta_min=0)
+
+    # 파이토치 기본제공 learning rate의 수정버전
+    elif args.lr_scheduler.lower() == 'warmupcosineschedule':
+        # warmup_steps동안 0~1까지 warmup 후 1~0까지 t_total-warmup_steps의 step동안 cosine을 그리며 decay
+        scheduler = WarmupCosineSchedule(optimizer=optimizer, warmup_steps=warmup_steps, t_total=length_train_dataloader, cycles=0.5, last_epoch=-1)
+        print('Warm-up during 0 to ', warmup_steps, 'steps, Cosine decay during ', warmup_steps, ' to ', length_train_dataloader, 'steps.')
+    elif args.scheduler == 'WarmupCosineWithHardRestartsSchedule':
+        scheduler = WarmupCosineWithHardRestartsSchedule(optimizer=optimizer, warmup_steps=warmup_steps, t_total=length_train_dataloader, cycles=1.0, last_epoch=-1)
+    elif args.scheduler == 'WarmupLinearSchedule': # Constant learning rate scheduling.
+        scheduler = ConstantLRSchedule(optimizer, last_epoch=-1)
+    else:
+        print("Invalid args input.")
+        raise ValueError('Invalid scheduler')
+
+    print('optimizer : ', type(optimizer), ' lr scheduler : ', type(scheduler))
+    return scheduler
