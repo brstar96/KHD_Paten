@@ -3,8 +3,9 @@ import numpy as np
 from tqdm import tqdm
 from datetime import datetime
 from sklearn.model_selection import StratifiedKFold, KFold
+from torch.utils.data import Dataset, DataLoader
 from utils.metrics import Evaluator
-from utils.dataLoader import train_dataloader
+from utils.dataLoader import KaKR3rdDataset, MammoDataset, Mammo_preprocessing
 from utils.tensorboard_summary import TensorboardSummary
 from utils import lr_scheduler
 from utils.loss import buildLosses
@@ -40,9 +41,9 @@ warnings.filterwarnings('ignore')
 #     nsml.bind(save=save, load=load, infer=infer)
 
 class Trainer(object):
-    def __init__(self, args):
+    def __init__(self, args, device):
         self.args = args
-        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        self.device = device
 
         # Define Saver
         self.saver = Saver(args)
@@ -56,15 +57,23 @@ class Trainer(object):
         if args.dataset == 'local':
             parent_dir = os.path.join(os.getcwd(), '../')
             dataset_root_path = os.path.join(parent_dir, '/2019-3rd-ml-month-with-kakr/')
+
+            # 작업중
         elif args.dataset == 'KHD_NSML':
-            dataset_root_path = None # 대회날 dataset_root_path = DATASET_PATH 으로 변경
+            label_path = 'train_label'
+            img_path_train = DATASET_PATH + '/train/' #대회 당일날 주석 풀고 사용.
+            img_path_validaton = DATASET_PATH + '/validation/' # 만약 validation용 데이터셋을 제공해주지 않을 경우 train_test_split으로 나눠서 넣기
+
+            # Pytorch Data loader
+            self.train_dataset = MammoDataset(args, mode = 'train', DATA_PATH=img_path_train)
+            self.validation_dataset = MammoDataset(args, mode='val', DATA_PATH=img_path_train)
+            self.train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
+            self.validation_loader = DataLoader(self.validation_dataset, batch_size=args.batch_size, shuffle=True)
+            print('Dataset class : ', self.args.class_num)
+            print('Train/Val dataloader length : ' + str(len(self.train_loader)) + ', ' + str(len(self.validation_loader)))
         else:
             print("Invalid dataset type.")
             raise ValueError('Argument --dataset must be `local` or `KHD_NSML`.')
-
-        train_DataLoader = train_dataloader(storageType='local', DATA_PATH=dataset_root_path, input_size=args.base_size, batch_size=args.batch_size, num_workers=4)
-        length_train_dataloader = len(train_DataLoader)
-        print('Dataset class : ', self.nclass)
 
         # Define network
         model = initialize_model(model_name=args.backbone, use_pretrained=True)
@@ -236,7 +245,7 @@ def main():
                             'resnext50_32x4d', 'resnext101_32x8d', # Modified ResNet
                             'oct_resnet50', 'oct_resnet101', 'oct_resnet152', 'oct_resnet200', # OctConv + Original ResNet
                             'senet154', 'se_resnet101', 'se_resnet152', 'se_resnext50_32x4d', 'se_resnext101_32x4d', # Squeeze and excitation module based models
-                            'efficientnetb3', 'efficientnetb4',], # EfficientNet models
+                            'efficientnetb3', 'efficientnetb4', 'efficientnetb5'], # EfficientNet models
                         help='Set backbone name')
     parser.add_argument('--dataset', type=str, default='local',
                         choices=['local', 'KHD_NSML'],
@@ -290,9 +299,16 @@ def main():
     parser.add_argument('--gpu_ids', type=str, default='0', help='use which gpu to train, must be a comma-separated list of integers only (default=0)')
     parser.add_argument('--seed', type=int, default=2019, metavar='S', help='random seed (default: 2019)')
 
+    # DONOTCHANGE: They are reserved for nsml
+    parser.add_argument('--mode', type=str, default='train', help='submit일때 해당값이 test로 설정됩니다.')
+    parser.add_argument('--iteration', type=str, default='0',
+                      help='fork 명령어를 입력할때의 체크포인트로 설정됩니다. 체크포인트 옵션을 안주면 마지막 wall time 의 model 을 가져옵니다.')
+    parser.add_argument('--pause', type=int, default=0, help='model 을 load 할때 1로 설정됩니다.')
+
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     print('cuDNN version : ', torch.backends.cudnn.version())
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     if args.cuda:
         try:
@@ -327,7 +343,8 @@ def main():
     print(args)
     torch.manual_seed(args.seed)
 
-    trainer = Trainer(args)
+    # Define trainer. (Define dataloader, model, optimizer etc...)
+    trainer = Trainer(args, device)
     print('Starting Epoch:', trainer.args.start_epoch)
     print('Total Epoches:', trainer.args.epochs)
 
