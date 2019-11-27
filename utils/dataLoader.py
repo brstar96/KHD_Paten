@@ -88,7 +88,7 @@ def train_dataloader(storageType = 'local', DATA_PATH = None, input_size=224, ba
         data_path = []  # data path 저장을 위한 변수
         labels = []  # 테스트 id 순서 기록
         ## 하위 데이터 path 읽기
-        for dir_name, _, _ in os.walk(root_path):
+        for dir_name, _, _ in os.walk(DATA_PATH):
             try:
                 data_id = dir_name.split('/')[-1]
                 int(data_id)

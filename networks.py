@@ -1,6 +1,7 @@
 from torchvision import models
 from backbones.octConv_ResNet import oct_resnet50, oct_resnet101, oct_resnet152
 from backbones.SENet import senet154, se_resnet101, se_resnet152, se_resnext50_32x4d, se_resnext101_32x4d
+from backbones.efficientnet import EfficientNet
 
 def set_parameter_requires_grad(model, feature_extracting):
     if feature_extracting:
@@ -39,6 +40,12 @@ def initialize_model(model_name, use_pretrained=True):
         return models.resnext50_32x4d(pretrained=use_pretrained, progress=True)
     elif model_name == "resnext101_32x8d":
         return models.resnext101_32x8d(pretrained=use_pretrained, progress=True)
+
+    # ImageNet pretrained efficientnet-b3, b4
+    elif model_name == 'efficientnetb3':
+        return EfficientNet.from_pretrained('efficientnet-b3')
+    elif model_name == 'efficientnetb4':
+        return EfficientNet.from_pretrained('efficientnet-b4')
     else:
         print("Wrong define model parameter input.")
         raise ValueError

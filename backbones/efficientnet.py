@@ -186,6 +186,7 @@ class EfficientNet(nn.Module):
 
         return x
 
+
     def forward(self, inputs):
         """ Calls extract_features to extract features, applies final linear layer, and returns logits. """
         bs = inputs.size(0)

@@ -155,13 +155,9 @@ class Trainer(object):
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
         for i, sample in enumerate(tbar):
-            # print('Training function activated, ' + str(i) + 'th step running.')
             image, target = sample['image'], sample['label']
             if self.args.cuda:
-                # image, target = image.cuda(), target.cuda()
                 image, target = image.to(self.device), target.to(self.device)
-                # print(image.tolist())
-                # print(target.tolist())
 
             self.scheduler(self.optimizer, i, epoch, self.best_pred)
             self.optimizer.zero_grad()
@@ -172,11 +168,6 @@ class Trainer(object):
             train_loss += loss.item()
             tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
             self.writer.add_scalar('train/total_loss_iter', loss.item(), i + num_img_tr * epoch)
-
-            # Show 10 * 3 inference results each epoch
-            if i % (num_img_tr // 10) == 0:
-                global_step = i + num_img_tr * epoch
-                self.summary.visualize_image(self.writer, self.args.dataset, image, target, output, global_step)
 
         self.writer.add_scalar('train/total_loss_epoch', train_loss, epoch)
         print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
@@ -244,7 +235,8 @@ def main():
                         choices=['resnet101', 'resnet152' # Original ResNet 
                             'resnext50_32x4d', 'resnext101_32x8d', # Modified ResNet
                             'oct_resnet50', 'oct_resnet101', 'oct_resnet152', 'oct_resnet200', # OctConv + Original ResNet
-                            'senet154', 'se_resnet101', 'se_resnet152', 'se_resnext50_32x4d', 'se_resnext101_32x4d',], # Squeeze and excitation module based models
+                            'senet154', 'se_resnet101', 'se_resnet152', 'se_resnext50_32x4d', 'se_resnext101_32x4d', # Squeeze and excitation module based models
+                            'efficientnetb3', 'efficientnetb4',], # EfficientNet models
                         help='Set backbone name')
     parser.add_argument('--dataset', type=str, default='local',
                         choices=['local', 'KHD_NSML'],
