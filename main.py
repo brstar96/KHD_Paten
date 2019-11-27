@@ -5,7 +5,7 @@ from datetime import datetime
 from sklearn.model_selection import StratifiedKFold, KFold
 from torch.utils.data import Dataset, DataLoader
 from utils.metrics import Evaluator
-from utils.dataLoader import KaKR3rdDataset, MammoDataset, Mammo_preprocessing
+from utils.dataLoader import KaKR3rdDataset, MammoDataset
 from utils.tensorboard_summary import TensorboardSummary
 from utils import lr_scheduler
 from utils.loss import buildLosses
@@ -17,6 +17,7 @@ from AdamW import AdamW
 from RAdam import RAdam
 # import nsml
 # from nsml.constants import DATASET_PATH, GPU_NUM
+DATASET_PATH = None # temp
 
 warnings.filterwarnings('ignore')
 

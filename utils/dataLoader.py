@@ -28,20 +28,20 @@ def crop_boxing_img(img_name, TRAIN_IMG_PATH, TEST_IMG_PATH, df_train, df_test, 
 
     return img.crop((x1, y1, x2, y2)).resize(size)
 
-
-def Mammo_preprocessing(data):
-    print('Preprocessing start')
-    # 자유롭게 작성해주시면 됩니다.
-    data = np.concatenate([np.concatenate([data[:, 0], data[:, 1]], axis=2)
-                              , np.concatenate([data[:, 2], data[:, 3]], axis=2)], axis=1)
-
-    X = np.expand_dims(data, axis=1)
-    X = X - X.min() / (X.max() - X.min())
-
-    print('Preprocessing complete...')
-    print('The shape of X changed', X.shape)
-
-    return X
+# 아래의 데이터셋 로더 클래스(KaKR3rdDataset, MammoDataset)에 정의(transform_tr/val)해두었지만 혹시몰라 남겨둠.
+# def Mammo_preprocessing(data):
+#     print('Preprocessing start')
+#     # 자유롭게 작성해주시면 됩니다.
+#     data = np.concatenate([np.concatenate([data[:, 0], data[:, 1]], axis=2)
+#                               , np.concatenate([data[:, 2], data[:, 3]], axis=2)], axis=1)
+#
+#     X = np.expand_dims(data, axis=1)
+#     X = X - X.min() / (X.max() - X.min())
+#
+#     print('Preprocessing complete...')
+#     print('The shape of X changed', X.shape)
+#
+#     return X
 
 # KaKR 3rd car classification competiton을 위한 custom dataloader
 class KaKR3rdDataset(Dataset):
@@ -90,16 +90,35 @@ class KaKR3rdDataset(Dataset):
         # Grayscale 등으로 변환할 경우 이곳에서 작업할것.
 
         if self.mode == 'train' :
-            transform_tr(self.args, self.x_data)
+            return self.transform_tr(self.args, self.x_data)
         elif self.mode == 'val':
-            transform_val(self.args, self.x_data)
+            return self.transform_val(self.args, self.x_data)
         else:
             print("Invalid params input")
             raise NotImplementedError
 
-        return self.x_data[index], self.y_data[index]
     def __len__(self):
         return self.len
+
+    # custom_transforms.py의 전처리 항목을 적용한 transforms.Compose 클래스 반환
+    def transform_tr(self, sample):
+        composed_transforms = transforms.Compose([
+            tr.RandomHorizontalFlip(),
+            tr.RandomScaleCrop(base_size=self.args.base_size, crop_size=self.args.crop_size),
+            # tr.FixScaleCrop(crop_size=self.args.crop_size),
+            tr.RandomGaussianBlur(),
+            tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            tr.ToTensor()])
+
+        return composed_transforms(sample)
+
+    def transform_val(self, sample):
+        composed_transforms = transforms.Compose([
+            tr.FixScaleCrop(crop_size=self.args.crop_size),
+            tr.Normalize(mean=(0.485, 0.456, 0.406), std=(0.229, 0.224, 0.225)),
+            tr.ToTensor()])
+
+        return composed_transforms(sample)
 
 
 # KHD Mammo dataset을 위한 데이터로더
