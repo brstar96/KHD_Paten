@@ -1,3 +1,5 @@
+# 참고용 Stratified CV + 앙상블 코드 : https://www.kaggle.com/janged/3rd-ml-month-xception-stratifiedkfold-ensemble
+
 import argparse, logging, os, torch, warnings
 import numpy as np
 from tqdm import tqdm
@@ -84,21 +86,16 @@ class Trainer(object):
 
         # Define network
         input_channels = 2 if args.use_additional_annotation else 3
-        model = models.ImageBreastModel(args, input_channels)
+        model = models.ImageBreastModel(args, input_channels) # 4개 모델들의 softmax값 리턴
         model.to(self.device)
 
         # Print parameters to be optimized/updated.
         print("Params to learn:")
-        if args.feature_extracting:
-            params_to_update = []
-            for name, param in model.named_parameters():
-                if param.requires_grad:
-                    params_to_update.append(param)
-                    print("\t", name)
-        else:
-            for name, param in model.named_parameters():
-                if param.requires_grad:
-                    print("\t", name)
+        params_to_update = []
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                params_to_update.append(param)
+                print("\t", name)
 
         # Define Optimizer
         if args.optimizer.lower() == 'sgd':
@@ -177,7 +174,8 @@ class Trainer(object):
 
             self.scheduler(self.optimizer, i, epoch, self.best_pred)
             self.optimizer.zero_grad()
-            output = self.model(image)
+            output = self.model(image) # 각 뷰포인트마다 2개의 softmax결과 * 4개 = 8개의 softmax (python set으로 반환됨)
+            # voting해서 하나의 클래스만 남기도록 하는 부분 추가 (set의 voting)
             loss = self.criterion(output, target)
             loss.backward()
             self.optimizer.step()
@@ -287,7 +285,6 @@ def main():
     parser.add_argument('--class_num', type=int, default=None,
                         help='Set class number. If None, class_num will be set according to dataset`s class number.')
     parser.add_argument('--use_pretrained', type=bool, default=False) # ImageNet pre-trained model 사용여부
-    parser.add_argument('--feature_extracting', type=bool, default=True)
     parser.add_argument('--use_additional_annotation', type=bool, default=True, help='Whether use additional annotation') # 데이터셋에 악성 종양에 대한 세그먼트 어노테이션이 있는 경우 True
 
     # Set optimizer params for training network.

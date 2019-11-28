@@ -10,7 +10,7 @@ def set_parameter_requires_grad(model, feature_extracting):
             param.requires_grad = False
 
 # If use_pretrained=True, below models are using ImageNet pretrained weights.
-def initialize_model(model_name, use_pretrained=False):
+def initialize_model(model_name, use_pretrained=False, input_channels=None, num_classes=None):
     # These models are pretrained via ImageNet-1000 class
     if model_name == "resnet101":
         return models.resnet101(pretrained=use_pretrained, progress=True)
@@ -19,13 +19,13 @@ def initialize_model(model_name, use_pretrained=False):
 
     # Constructs a Octave ResNet-152 model.(pretrained (bool): If True, returns a model pre-trained on ImageNet)
     elif model_name == "oct_resnet26":
-        return oct_resnet26(pretrained=use_pretrained, )
+        return oct_resnet26(input_channels=input_channels, num_classes=num_classes)
     elif model_name == "oct_resnet50":
-        return oct_resnet50(pretrained=use_pretrained, progress=True)
+        return oct_resnet50(input_channels=input_channels, num_classes=num_classes)
     elif model_name == "oct_resnet101":
-        return oct_resnet101(pretrained=use_pretrained, progress=True)
+        return oct_resnet101(input_channels=input_channels, num_classes=num_classes)
     elif model_name == "oct_resnet152":
-        return oct_resnet152(pretrained=use_pretrained, progress=True)
+        return oct_resnet152(input_channels=input_channels, num_classes=num_classes)
 
     # 아래 5개의 모델은 pretrained=None이면 전이학습을 하지 않음.
     elif model_name == "senet154":
