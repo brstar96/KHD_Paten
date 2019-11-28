@@ -59,7 +59,14 @@ class Trainer(object):
             parent_dir = os.path.join(os.getcwd(), '../')
             dataset_root_path = os.path.join(parent_dir, '/2019-3rd-ml-month-with-kakr/')
 
-            # 작업중
+            # Pytorch Data loader
+            self.train_dataset = KaKR3rdDataset(args, mode='train', DATA_PATH=os.path.join(dataset_root_path, 'train/'))
+            self.validation_dataset = KaKR3rdDataset(args, mode='val', DATA_PATH=os.path.join(dataset_root_path, 'test/'))
+            self.train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
+            self.validation_loader = DataLoader(self.validation_dataset, batch_size=args.batch_size, shuffle=True)
+            print('Dataset class : ', self.args.class_num)
+            print('Train/Val dataloader length : ' + str(len(self.train_loader)) + ', ' + str(
+                len(self.validation_loader)))
         elif args.dataset == 'KHD_NSML':
             img_path_train = DATASET_PATH + '/train/' #대회 당일날 주석 풀고 사용.
             img_path_validaton = DATASET_PATH + '/validation/' # 만약 validation용 데이터셋을 제공해주지 않을 경우 train_test_split으로 나눠서 넣기

@@ -57,15 +57,15 @@ def calcMeanStd(dataloader):
 
 def main():
     # Build pytorch dataset and batch dataloader
-    batch_size = 500
     dataset = datasets.ImageFolder(root='../../2019-3rd-ml-month-with-kakr/',
                                    transform=transforms.Compose([
                                    transforms.Resize((224, 224)),
                                    transforms.ToTensor()]))
+    batch_size = len(dataset) # OOM 에러 발생 시 배치사이즈를 하드코딩해서 넣기.
     dataloader = data.DataLoader(dataset, batch_size=batch_size, num_workers=4, shuffle=False)
     print("\nlength of dataloader : ", len(dataloader) * batch_size)
     entire_mean, entire_std = calcMeanStd(dataloader)
-    print("Entire dataset`s mean and std(mean/std0/std1) : ", entire_mean, entire_std)
+    print("Entire dataset`s mean and std(mean/std) per channels : ", entire_mean, entire_std)
 
 if __name__ == "__main__":
     main()
