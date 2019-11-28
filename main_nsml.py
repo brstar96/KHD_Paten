@@ -10,11 +10,11 @@ from utils.tensorboard_summary import TensorboardSummary
 from utils import lr_scheduler
 from utils.loss import buildLosses
 from utils.model_saver import Saver
-from networks import initialize_model
+from utils.AdamW import AdamW
+from utils.RAdam import RAdam
+import models
 from torch.backends import cudnn
 from torch import optim
-from AdamW import AdamW
-from RAdam import RAdam
 # import nsml
 # from nsml.constants import DATASET_PATH, GPU_NUM
 DATASET_PATH = None # temp
@@ -83,7 +83,8 @@ class Trainer(object):
             raise ValueError('Argument --dataset must be `local` or `KHD_NSML`.')
 
         # Define network
-        model = initialize_model(model_name=args.backbone, use_pretrained=True)
+        input_channels = 2 if args.use_additional_annotation else 3
+        model = models.ImageBreastModel(args, input_channels)
         model.to(self.device)
 
         # Print parameters to be optimized/updated.
@@ -246,10 +247,10 @@ class Trainer(object):
 def main():
     # Set base parameters (dataset path, backbone name etc...)
     parser = argparse.ArgumentParser(description="This code is for testing various octConv+ResNet.")
-    parser.add_argument('--backbone', type=str, default='oct_resnet50',
+    parser.add_argument('--backbone', type=str, default='oct_resnet26',
                         choices=['resnet101', 'resnet152' # Original ResNet 
                             'resnext50_32x4d', 'resnext101_32x8d', # Modified ResNet
-                            'oct_resnet50', 'oct_resnet101', 'oct_resnet152', 'oct_resnet200', # OctConv + Original ResNet
+                            'oct_resnet26', 'oct_resnet50', 'oct_resnet101', 'oct_resnet152', 'oct_resnet200', # OctConv + Original ResNet
                             'senet154', 'se_resnet101', 'se_resnet152', 'se_resnext50_32x4d', 'se_resnext101_32x4d', # Squeeze and excitation module based models
                             'efficientnetb3', 'efficientnetb4', 'efficientnetb5'], # EfficientNet models
                         help='Set backbone name')
@@ -285,8 +286,9 @@ def main():
                         metavar='N', help='input batch size for testing (default: auto)')
     parser.add_argument('--class_num', type=int, default=None,
                         help='Set class number. If None, class_num will be set according to dataset`s class number.')
-    parser.add_argument('--use_pretrained', type=bool, default=True) # pre-trained model 사용여부(pytorch model zoo에 있는 모델 위주로 사용 권장)
-    parser.add_argument('--feature_extracting', type=bool, default=True) #
+    parser.add_argument('--use_pretrained', type=bool, default=False) # ImageNet pre-trained model 사용여부
+    parser.add_argument('--feature_extracting', type=bool, default=True)
+    parser.add_argument('--use_additional_annotation', type=bool, default=True, help='Whether use additional annotation') # 데이터셋에 악성 종양에 대한 세그먼트 어노테이션이 있는 경우 True
 
     # Set optimizer params for training network.
     parser.add_argument('--lr', type=float, default=None,

@@ -45,16 +45,17 @@ class Bottleneck(nn.Module):
 
 class OctResNet(nn.Module):
 
-    def __init__(self, block, layers, num_classes=1000, zero_init_residual=False,
+    def __init__(self, input_channels, block, layers, num_classes=1000, zero_init_residual=False,
                  groups=1, width_per_group=64, norm_layer=None):
         super(OctResNet, self).__init__()
         if norm_layer is None:
             norm_layer = nn.BatchNorm2d
 
+        self.input_channels = input_channels
         self.inplanes = 64
         self.groups = groups
         self.base_width = width_per_group
-        self.conv1 = nn.Conv2d(3, self.inplanes, kernel_size=7, stride=2, padding=3,
+        self.conv1 = nn.Conv2d(input_channels, self.inplanes, kernel_size=7, stride=2, padding=3,
                                bias=False)
         self.bn1 = norm_layer(self.inplanes)
         self.relu = nn.ReLU(inplace=True)
@@ -119,52 +120,52 @@ class OctResNet(nn.Module):
 
         return x
 
-
-def oct_resnet26(pretrained=False, **kwargs):
+def oct_resnet26(input_channels = 3, pretrained=False, block, layers**kwargs):
     """Constructs a Octave ResNet-26 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = OctResNet(Bottleneck, [2, 2, 2, 2], **kwargs)
+    # input_channels, block, layers, num_classes=1000,
+    model = OctResNet(input_channels = input_channels, pretrained=pretrained, block = Bottleneck, layers=[2, 2, 2, 2])
     return model
 
 
-def oct_resnet50(pretrained=False, **kwargs):
+def oct_resnet50(pretrained=False, input_channels = 3, block, **kwargs):
     """Constructs a Octave ResNet-50 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = OctResNet(Bottleneck, [3, 4, 6, 3], **kwargs)
+    model = OctResNet(block = Bottleneck, layers=[3, 4, 6, 3], **kwargs)
     return model
 
 
-def oct_resnet101(pretrained=False, **kwargs):
+def oct_resnet101(pretrained=False, input_channels = 3, block, **kwargs):
     """Constructs a Octave ResNet-101 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = OctResNet(Bottleneck, [3, 4, 23, 3], **kwargs)
+    model = OctResNet(block = Bottleneck, layers=[3, 4, 23, 3], **kwargs)
     return model
 
 
-def oct_resnet152(pretrained=False, **kwargs):
+def oct_resnet152(pretrained=False, input_channels = 3, block, **kwargs):
     """Constructs a Octave ResNet-152 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = OctResNet(Bottleneck, [3, 8, 36, 3], **kwargs)
+    model = OctResNet(block = Bottleneck, layers=[3, 8, 36, 3], **kwargs)
     return model
 
 
-def oct_resnet200(pretrained=False, **kwargs):
+def oct_resnet200(pretrained=False, input_channels = 3, block, **kwargs):
     """Constructs a Octave ResNet-200 model.
 
     Args:
         pretrained (bool): If True, returns a model pre-trained on ImageNet
     """
-    model = OctResNet(Bottleneck, [3, 24, 36, 3], **kwargs)
+    model = OctResNet(block = Bottleneck, [3, 24, 36, 3], **kwargs)
     return model

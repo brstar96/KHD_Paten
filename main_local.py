@@ -10,7 +10,7 @@ from utils.tensorboard_summary import TensorboardSummary
 from utils import lr_scheduler
 from utils.loss import buildLosses
 from utils.model_saver import Saver
-from networks import initialize_model
+from backbone_networks import initialize_model
 from torch.backends import cudnn
 from torch import optim
 from AdamW import AdamW
@@ -72,7 +72,7 @@ class Trainer(object):
             raise ValueError('Argument --dataset must be `local` or `KHD_NSML`.')
 
         # Define network
-        model = initialize_model(model_name=args.backbone, use_pretrained=True)
+        model = initialize_model(model_name=args.backbone, use_pretrained=False)
         model.to(self.device)
 
         # Print parameters to be optimized/updated.

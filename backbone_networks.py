@@ -1,5 +1,5 @@
 from torchvision import models
-from backbones.octConv_ResNet import oct_resnet50, oct_resnet101, oct_resnet152
+from backbones.octConv_ResNet import oct_resnet26, oct_resnet50, oct_resnet101, oct_resnet152
 from backbones.SENet import senet154, se_resnet101, se_resnet152, se_resnext50_32x4d, se_resnext101_32x4d
 from backbones.efficientnet import EfficientNet
 
@@ -10,7 +10,7 @@ def set_parameter_requires_grad(model, feature_extracting):
             param.requires_grad = False
 
 # If use_pretrained=True, below models are using ImageNet pretrained weights.
-def initialize_model(model_name, use_pretrained=True):
+def initialize_model(model_name, use_pretrained=False):
     # These models are pretrained via ImageNet-1000 class
     if model_name == "resnet101":
         return models.resnet101(pretrained=use_pretrained, progress=True)
@@ -18,6 +18,8 @@ def initialize_model(model_name, use_pretrained=True):
         return models.resnet152(pretrained=use_pretrained, progress=True)
 
     # Constructs a Octave ResNet-152 model.(pretrained (bool): If True, returns a model pre-trained on ImageNet)
+    elif model_name == "oct_resnet26":
+        return oct_resnet26(pretrained=use_pretrained, )
     elif model_name == "oct_resnet50":
         return oct_resnet50(pretrained=use_pretrained, progress=True)
     elif model_name == "oct_resnet101":
