@@ -28,21 +28,6 @@ def crop_boxing_img(img_name, TRAIN_IMG_PATH, TEST_IMG_PATH, df_train, df_test, 
 
     return img.crop((x1, y1, x2, y2)).resize(size)
 
-# 아래의 데이터셋 로더 클래스(KaKR3rdDataset, MammoDataset)에 정의(transform_tr/val)해두었지만 혹시몰라 남겨둠.
-# def Mammo_preprocessing(data):
-#     print('Preprocessing start')
-#     # 자유롭게 작성해주시면 됩니다.
-#     data = np.concatenate([np.concatenate([data[:, 0], data[:, 1]], axis=2)
-#                               , np.concatenate([data[:, 2], data[:, 3]], axis=2)], axis=1)
-#
-#     X = np.expand_dims(data, axis=1)
-#     X = X - X.min() / (X.max() - X.min())
-#
-#     print('Preprocessing complete...')
-#     print('The shape of X changed', X.shape)
-#
-#     return X
-
 # KaKR 3rd car classification competiton을 위한 custom dataloader
 class KaKR3rdDataset(Dataset):
     def read_dataset(self):
@@ -73,8 +58,9 @@ class KaKR3rdDataset(Dataset):
 
         return data, labels, len(data), len(labels)  # Numpy arr과 정답 클래스
 
-    def __init__(self, args, mode, DATA_PATH, transforms = None):
+    def __init__(self, args, df, mode, DATA_PATH, transforms = None):
         self.args = args
+        self.df = df
         self.mode = mode
         self.data_set_path = DATA_PATH
         self.data, self.labels, self.len_data, self.len_label = self.read_dataset()
@@ -88,7 +74,7 @@ class KaKR3rdDataset(Dataset):
 
     def __getitem__(self, index):
         # Grayscale 등으로 변환할 경우 이곳에서 작업할것.
-
+        image = Image.open(TRAIN_IMAGE_PATH / self.df['img_file'][idx]).convert("RGB")
         if self.mode == 'train':
             return self.transform_tr(self.x_data)
         elif self.mode == 'val':
