@@ -98,8 +98,9 @@ class WarmupCosineWithHardRestartsSchedule(LambdaLR):
             return 0.0
         return max(0.0, 0.5 * (1. + math.cos(math.pi * ((float(self.cycles) * progress) % 1.0))))
 
-def defineLR(args, optimizer,length_train_dataloader):
+def defineLRScheduler(args, optimizer, length_train_dataloader):
     warmup_steps = int(length_train_dataloader * 0.15)
+
     # 파이토치 기본제공 learning rate scheduler
     if args.lr_scheduler.lower() == 'steplr':
         scheduler = optim.plr_scheduler.StepLR(optimizer, step_size=7, gamma=0.1)

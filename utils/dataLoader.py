@@ -74,6 +74,9 @@ class KaKR3rdDataset(Dataset):
         return data, labels, len(data), len(labels)  # Numpy arr과 정답 클래스
 
     def __init__(self, args, mode, DATA_PATH, transforms = None):
+        self.args = args
+        self.mode = mode
+        self.data_set_path = DATA_PATH
         self.data, self.labels, self.len_data, self.len_label = self.read_dataset()
 
         self.len = self.data.shape[0]
@@ -82,17 +85,14 @@ class KaKR3rdDataset(Dataset):
 
         # 전처리를 위한 transforms 초기화
         self.transforms = transforms
-        self.args = args
-        self.mode = mode
-        self.data_set_path = DATA_PATH
 
     def __getitem__(self, index):
         # Grayscale 등으로 변환할 경우 이곳에서 작업할것.
 
-        if self.mode == 'train' :
-            return self.transform_tr(self.args, self.x_data)
+        if self.mode == 'train':
+            return self.transform_tr(self.x_data)
         elif self.mode == 'val':
-            return self.transform_val(self.args, self.x_data)
+            return self.transform_val(self.x_data)
         else:
             print("Invalid params input")
             raise NotImplementedError
@@ -123,6 +123,34 @@ class KaKR3rdDataset(Dataset):
 
 # KHD Mammo dataset을 위한 데이터로더
 class MammoDataset(Dataset):
+    def __init__(self, args, mode, DATA_PATH):
+        self.args = args
+        self.mode = mode
+        self.data_set_path = DATA_PATH
+        self.data, self.labels, self.len_data, self.len_label = self.read_dataset()
+
+        self.len = self.data.shape[0]
+        self.x_data = torch.from_numpy(self.data)
+        self.y_data = torch.from_numpy(self.labels)
+
+        # 전처리를 위한 transforms 초기화
+        self.transforms = transforms
+
+    def __getitem__(self, index):
+        _img, _target = self._make_img_gt_point_pair(index)
+        sample = {'image': _img, 'label': _target}
+
+        if self.mode == 'train':
+            return self.transform_tr(sample)
+        elif self.mode == 'val':
+            return self.transform_val(sample)
+        else:
+            print("Invalid params input")
+            raise NotImplementedError
+
+    def __len__(self):
+        return self.len
+
     def read_dataset(self):
         t = time.time()
         print('Data loading...')
@@ -151,32 +179,10 @@ class MammoDataset(Dataset):
 
         return data, labels, len(data), len(labels)  # Numpy arr과 정답 클래스
 
-    def __init__(self, args, mode, DATA_PATH):
-        self.args = args
-        self.mode = mode
-        self.data_set_path = DATA_PATH
-        self.data, self.labels, self.len_data, self.len_label = self.read_dataset()
-
-        self.len = self.data.shape[0]
-        self.x_data = torch.from_numpy(self.data)
-        self.y_data = torch.from_numpy(self.labels)
-
-        # 전처리를 위한 transforms 초기화
-        self.transforms = transforms
-
-    def __getitem__(self, index):
-        # Grayscale 등으로 변환할 경우 이곳에서 작업할것.
-
-        if self.mode == 'train':
-            return self.transform_tr(self.x_data)
-        elif self.mode == 'val':
-            return self.transform_val(self.x_data)
-        else:
-            print("Invalid params input")
-            raise NotImplementedError
-
-    def __len__(self):
-        return self.len
+    def _make_img_gt_point_pair(self, index):
+        _img = Image.open(self.x_data[index]).convert('RGB')
+        _target = self.y_data[index]
+        return _img, _target
 
     # custom_transforms.py의 전처리 항목을 적용한 transforms.Compose 클래스 반환
     def transform_tr(self, sample):

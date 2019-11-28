@@ -5,12 +5,10 @@ import torch
 import torch.nn as nn
 
 class buildLosses(object):
-    def __init__(self, weight=None, size_average=True, batch_average=True, ignore_index=255, cuda=False):
-        self.ignore_index = ignore_index
-        self.weight = weight
-        self.size_average = size_average
-        self.batch_average = batch_average
+    def __init__(self, cuda=True, batch_average=True, ignore_index=255, ):
         self.cuda = cuda
+        self.batch_average = batch_average
+        self.ignore_index = ignore_index
 
     def build_loss(self, mode='ce'):
         """Choices: ['ce' or 'focal']"""
@@ -25,8 +23,8 @@ class buildLosses(object):
 
     def CrossEntropyLoss(self, logit, target):
         n, c, h, w = logit.size()
-        criterion = nn.CrossEntropyLoss(weight=self.weight, ignore_index=self.ignore_index,
-                                        size_average=self.size_average)
+        criterion = nn.CrossEntropyLoss(ignore_index=self.ignore_index)
+
         if self.cuda:
             criterion = criterion.cuda()
 
@@ -39,15 +37,17 @@ class buildLosses(object):
 
     def FocalLoss(self, logit, target, gamma=2, alpha=0.5):
         n, c, h, w = logit.size()
-        criterion = nn.CrossEntropyLoss(weight=self.weight, ignore_index=self.ignore_index,
-                                        size_average=self.size_average)
+        criterion = nn.CrossEntropyLoss(ignore_index=self.ignore_index)
+
         if self.cuda:
             criterion = criterion.cuda()
 
         logpt = -criterion(logit, target.long())
         pt = torch.exp(logpt)
+
         if alpha is not None:
             logpt *= alpha
+
         loss = -((1 - pt) ** gamma) * logpt
 
         if self.batch_average:

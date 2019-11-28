@@ -42,9 +42,9 @@ warnings.filterwarnings('ignore')
 #     nsml.bind(save=save, load=load, infer=infer)
 
 class Trainer(object):
-    def __init__(self, args, device):
+    def __init__(self, args):
         self.args = args
-        self.device = device
+        self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
         # Define Saver
         self.saver = Saver(args)
@@ -61,13 +61,12 @@ class Trainer(object):
 
             # 작업중
         elif args.dataset == 'KHD_NSML':
-            label_path = 'train_label'
             img_path_train = DATASET_PATH + '/train/' #대회 당일날 주석 풀고 사용.
             img_path_validaton = DATASET_PATH + '/validation/' # 만약 validation용 데이터셋을 제공해주지 않을 경우 train_test_split으로 나눠서 넣기
 
             # Pytorch Data loader
             self.train_dataset = MammoDataset(args, mode = 'train', DATA_PATH=img_path_train)
-            self.validation_dataset = MammoDataset(args, mode='val', DATA_PATH=img_path_train)
+            self.validation_dataset = MammoDataset(args, mode='val', DATA_PATH=img_path_validaton)
             self.train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
             self.validation_loader = DataLoader(self.validation_dataset, batch_size=args.batch_size, shuffle=True)
             print('Dataset class : ', self.args.class_num)
@@ -80,8 +79,7 @@ class Trainer(object):
         model = initialize_model(model_name=args.backbone, use_pretrained=True)
         model.to(self.device)
 
-        # Gather the parameters to be optimized/updated.
-        params_to_update = model.parameters()
+        # Print parameters to be optimized/updated.
         print("Params to learn:")
         if args.feature_extracting:
             params_to_update = []
@@ -106,19 +104,19 @@ class Trainer(object):
             raise NotImplementedError
 
         # Define Evaluator (F1, Acc_class 등의 metric 계산을 정의한 클래스)
-        self.evaluator = Evaluator(self.nclass)
+        self.evaluator = Evaluator(self.args.class_num)
 
         # Define learning rate scheduler
-        self.scheduler = lr_scheduler.defineLR(args, optimizer, length_train_dataloader)
+        self.scheduler = lr_scheduler.defineLRScheduler(args, optimizer, len(self.train_loader))
 
         # Define Criterion
         weight = None # Calculate class weight when dataset is strongly imbalanced. (see pytorch deeplabV3 code's main.py)
-        self.criterion = buildLosses(weight=weight, cuda=args.cuda).build_loss(mode=args.loss_type)
+        self.criterion = buildLosses(cuda=args.cuda).build_loss(mode=args.loss_type)
         self.model, self.optimizer = model, optimizer
 
         use_amp = False
         if has_apex and args.amp:
-            model, optimizer = amp.initialize(model, optimizer, opt_level='O1')
+            self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level='O2')
             use_amp = True
         if args.local_rank == 0:
             logging.info('NVIDIA APEX {}. AMP {}.'.format(
@@ -128,19 +126,19 @@ class Trainer(object):
             if args.sync_bn:
                 try:
                     if has_apex:
-                        model = convert_syncbn_model(model)
+                        self.model = convert_syncbn_model(model)
                     else:
-                        model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
+                        self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
                     if args.local_rank == 0:
                         logging.info('Converted model to use Synchronized BatchNorm.')
                 except Exception as e:
                     logging.error('Failed to enable Synchronized BatchNorm. Install Apex or Torch >= 1.1')
             if has_apex:
-                model = DDP(model, delay_allreduce=True)
+                self.model = DDP(model, delay_allreduce=True)
             else:
                 if args.local_rank == 0:
                     logging.info("Using torch DistributedDataParallel. Install NVIDIA Apex for Apex DDP.")
-                model = DDP(model, device_ids=[args.local_rank])  # can use device str in Torch >= 1.1
+                self.model = DDP(model, device_ids=[args.local_rank])  # can use device str in Torch >= 1.1
 
         # Resuming checkpoint
         self.best_pred = 0.0
@@ -197,8 +195,7 @@ class Trainer(object):
         self.model.eval()
         self.evaluator.reset() # metric이 정의되어 있는 evaluator클래스 초기화 (confusion matrix 초기화 수행)
 
-        # train_loader 아래에 val_loader 추가해야 함. (11/26)
-        tbar = tqdm(self.val_loader, desc='\r')
+        tbar = tqdm(self.validation_loader, desc='\r')
         test_loss = 0.0
         for i, sample in enumerate(tbar):
             image, target = sample['image'], sample['label']
@@ -213,6 +210,7 @@ class Trainer(object):
             pred = output.data.cpu().numpy()
             target = target.cpu().numpy()
             pred = np.argmax(pred, axis=1)
+
             # Add batch sample into evaluator
             self.evaluator.add_batch(target, pred)
 
@@ -263,6 +261,8 @@ def main():
                         help='crop image size')
     parser.add_argument('--k_folds', type=int, default=5,
                         help='Set k_folds params for stratified K-fold cross validation.')
+    parser.add_argument('--distributed', type=bool, default=None,
+                        help='Whether to use distributed GPUs. (default: None)')
     parser.add_argument('--sync_bn', type=bool, default=None,
                         help='Whether to use sync bn (default: auto)')
     parser.add_argument('--freeze_bn', type=bool, default=False,
@@ -309,17 +309,19 @@ def main():
     args = parser.parse_args()
     args.cuda = not args.no_cuda and torch.cuda.is_available()
     print('cuDNN version : ', torch.backends.cudnn.version())
-    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     if args.cuda:
         try:
             args.gpu_ids = [int(s) for s in args.gpu_ids.split(',')]
         except ValueError:
             raise ValueError('Argument --gpu_ids must be a comma-separated list of integers only')
-    if args.sync_bn is None:
+
+    if args.distributed is None and args.sync_bn is None:
         if args.cuda and len(args.gpu_ids) > 1:
+            args.distributed = True
             args.sync_bn = True
         else:
+            args.distributed = False
             args.sync_bn = False
 
     # default settings for epochs, lr and class_num of dataset.
@@ -345,7 +347,7 @@ def main():
     torch.manual_seed(args.seed)
 
     # Define trainer. (Define dataloader, model, optimizer etc...)
-    trainer = Trainer(args, device)
+    trainer = Trainer(args)
     print('Starting Epoch:', trainer.args.start_epoch)
     print('Total Epoches:', trainer.args.epochs)
 
@@ -365,6 +367,6 @@ if __name__ == "__main__":
     except ImportError:
         from torch.nn.parallel import DistributedDataParallel as DDP
         has_apex = False
-
     cudnn.benchmark = True
+
     main()

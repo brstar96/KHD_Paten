@@ -8,9 +8,9 @@ class Evaluator(object):
         self.num_class = num_class
         self.cfMatrix = np.zeros((self.num_class,)*2)
 
-    def F1_Score(self, gt_label, predicted_label):
+    def F1_Score(self):
         # class imbalance를 고려하고 싶은 경우 average = 'weighted' 옵션 사용
-        return f1_score(gt_label, predicted_label, average='macro')
+        return f1_score(self.GT, self.predicted, average='macro')
 
     def Accuracy_Class(self):
         # calculation using confusion matrix
@@ -22,9 +22,10 @@ class Evaluator(object):
         # Data(GT, Predicted) fetch and build confusion matrix.
         # gt_label and predicted_label must be same dimension.
         assert gt_label.shape == predicted_label.shape
-        cfMatrix = confusion_matrix(gt_label, predicted_label)
+        self.GT = gt_label
+        self.predicted = predicted_label
+        self.cfMatrix = confusion_matrix(gt_label, predicted_label)
         print(classification_report(gt_label, predicted_label))
-        self.cfMatrix = cfMatrix
 
     def reset(self):
         # reset confusion matrix
