@@ -21,26 +21,6 @@ DATASET_PATH = None # temp
 
 warnings.filterwarnings('ignore')
 
-# def bind_model(model):
-#     def save(dir_name):
-#         os.makedirs(dir_name, exist_ok=True)
-#         torch.save(model.state_dict(),os.path.join(dir_name, 'model'))
-#         print('model saved!')
-#
-#     def load(dir_name):
-#         model.load_state_dict(torch.load(os.path.join(dir_name, 'model')))
-#         model.eval()
-#         print('model loaded!')
-#
-#     def infer(data): ## 해당 부분은 data loader의 infer_func을 의미
-#         X = preprocessing(data)
-#         with torch.no_grad():
-#             X = torch.from_numpy(X).float().to(device)
-#             pred = model.forward(X)
-#         print('predicted')
-#         return pred
-#     nsml.bind(save=save, load=load, infer=infer)
-
 class Trainer(object):
     def __init__(self, args):
         self.args = args
@@ -117,7 +97,7 @@ class Trainer(object):
         self.scheduler = lr_scheduler.defineLRScheduler(args, optimizer, len(self.train_loader))
 
         # Define Criterion
-        weight = None # Calculate class weight when dataset is strongly imbalanced. (see pytorch deeplabV3 code's main.py)
+        weight = None # Calculate class weight when dataset is strongly imbalanced. (see pytorch deeplabV3 code's main_local.py)
         self.criterion = buildLosses(cuda=args.cuda).build_loss(mode=args.loss_type)
         self.model, self.optimizer = model, optimizer
 
