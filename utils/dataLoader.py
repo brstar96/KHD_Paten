@@ -1,6 +1,5 @@
 from __future__ import print_function, division
 import os, cv2, torch, time
-import numpy as np, cv
 from PIL import Image
 import numpy as np
 import utils.custom_transforms as tr
@@ -196,13 +195,13 @@ class MammoDataset(Dataset):
         return composed_transforms(sample)
 
     def clahe(self, img_arr):
-        vis = np.zeros((img_arr.shape[0], img_arr.shape[1]), np.float32)
-        vis2 = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
 
+        PILim = Image.fromarray(img_arr)
+        imcv = np.asarray(PILim.convert('L'))
 
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        img2 = clahe.apply(img_arr)
-        res = np.hstack((img_arr, img2))
+        img2 = clahe.apply(imcv)
+        res = np.hstack((imcv, img2))
         return res  # Grayscale
 
     def postclahe(self, img):
