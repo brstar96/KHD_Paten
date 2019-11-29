@@ -1,6 +1,6 @@
 # 참고용 Stratified CV + 앙상블 코드 : https://www.kaggle.com/janged/3rd-ml-month-xception-stratifiedkfold-ensemble
 
-import argparse, logging, os, torch, warnings
+import argparse, logging, os, torch, warnings, random
 import numpy as np
 from tqdm import tqdm
 from datetime import datetime
@@ -22,6 +22,15 @@ from torch import optim
 DATASET_PATH = None # temp
 
 warnings.filterwarnings('ignore')
+
+# 모든 Seed 고정
+def seed_everything(seed):
+    random.seed(seed)
+    os.environ['PYTHONHASHSEED'] = str(seed)
+    np.random.seed(seed)
+    torch.manual_seed(seed)
+    torch.cuda.manual_seed(seed)
+    torch.backends.cudnn.deterministic = True
 
 # def bind_model(model):
 #     def save(dir_name):
@@ -374,5 +383,8 @@ if __name__ == "__main__":
         from torch.nn.parallel import DistributedDataParallel as DDP
         has_apex = False
     cudnn.benchmark = True
+
+    SEED = 20191129
+    seed_everything(SEED) # 하이퍼파라미터 테스트를 위해 모든 시드 고정
 
     main()
