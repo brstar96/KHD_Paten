@@ -1,16 +1,15 @@
 # 참고용 Stratified CV + 앙상블 코드 : https://www.kaggle.com/janged/3rd-ml-month-xception-stratifiedkfold-ensemble
 
-import argparse, logging, os, torch, warnings, random
+import argparse, os, torch, warnings, random
 import numpy as np
-from tqdm import tqdm
 from datetime import datetime
 from sklearn.model_selection import StratifiedKFold, KFold
+import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from utils.metrics import Evaluator
 from utils.dataLoader import KaKR3rdDataset, MammoDataset
 from utils import lr_scheduler
 from utils.loss import buildLosses
-from utils.model_saver import Saver
 from utils.AdamW import AdamW
 from utils.RAdam import RAdam
 import models
@@ -34,7 +33,8 @@ def get_lr(optimizer):
         return param_group['lr']
 
 def to_np(t):
-    return t.cpu().detach().numpy()
+    # return t.cpu().detach().numpy()
+    return t.detach().numpy()
 
 def soft_voting(probs):
     _arrs = [probs[key] for key in probs]
@@ -55,7 +55,7 @@ def bind_model(model, args):
         print(len(data))
         print(data.shape)
         batch = 20  # batch 사이즈 바꾸기 위해서, 단, 숫자 4 와 200 공약수여야한다.
-        print(len(data) // args.test_batch_size)
+        print(len(data) // batch)
         # ex ) 200/16 = 12.5 는 총 13번 포문이 돈다.
         pred = []
         for batch_num in range(len(data) // batch):
@@ -66,8 +66,13 @@ def bind_model(model, args):
             print("batchnum" + str(batch_num))
             with torch.no_grad():
                 X = torch.from_numpy(X).float().to(device)
-                pred.append(model.forward(X))
+                outputs = model.forward(X)
+                _, predicted = torch.max(outputs, 1)
+                pred.extend(predicted.tolist())
+
             print('predicted')
+
+        print("list:" + str(pred))
         return pred
 
     nsml.bind(save=save, load=load, infer=infer)
@@ -79,10 +84,6 @@ class Trainer(object):
         self.args = args
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
         print('Total Epoches:', args.epochs)
-
-        # Define Saver
-        self.saver = Saver(args)
-        self.saver.save_experiment_config()
 
         # Define network
         input_channels = 3 if args.use_additional_annotation else 2 # use_additional_annotation = True이면 3
@@ -98,11 +99,11 @@ class Trainer(object):
                 print("\t", name)
 
         # Define Optimizer
-        if args.optimizer.lower() == 'sgd':
+        if args.optim.lower() == 'sgd':
             optimizer = optim.SGD(model.parameters(), lr=args.lr, momentum=args.momentum, weight_decay=args.weight_decay)
-        elif args.optimizer.lower() == 'adamw':
+        elif args.optim.lower() == 'adamw':
             optimizer = AdamW(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), weight_decay=args.weight_decay)
-        elif args.optimizer.lower() == 'radam':
+        elif args.optim.lower() == 'radam':
             optimizer = RAdam(model.parameters(), lr=args.lr, betas=(args.beta1, args.beta2), weight_decay=args.weight_decay)
         else:
             print("Wrong optimizer args input.")
@@ -111,12 +112,11 @@ class Trainer(object):
         # Define Evaluator (F1, Acc_class 등의 metric 계산을 정의한 클래스)
         self.evaluator = Evaluator(self.args.class_num)
 
-        # Define learning rate scheduler
-        self.scheduler = lr_scheduler.defineLRScheduler(args, optimizer, len(self.train_loader))
-
         # Define Criterion
         weight = None # Calculate class weight when dataset is strongly imbalanced. (see pytorch deeplabV3 code's main_local.py)
-        self.criterion = buildLosses(cuda=args.cuda).build_loss(mode=args.loss_type)
+        self.criterion = nn.CrossEntropyLoss()
+
+        # buildLosses(cuda=args.cuda).build_loss(mode=args.loss_type)
         self.model, self.optimizer = model, optimizer
         bind_model(self.model, args)
 
@@ -158,6 +158,9 @@ class Trainer(object):
             else:
                 print("Invalid dataset type.")
                 raise ValueError('Argument --dataset must be `local` or `KHD_NSML`.')
+
+            # Define learning rate scheduler
+            self.scheduler = lr_scheduler.defineLRScheduler(args, optimizer, len(self.train_loader))
 
             # Train the model
             total_step = len(self.train_loader)
@@ -322,6 +325,7 @@ def main():
                         help='Set optimizer type. (default: RAdam)')
     parser.add_argument('--beta1', default=0.9, type=float, help='beta1 for adam')
     parser.add_argument('--beta2', default=0.999, type=float, help='beta2 for adam')
+    parser.add_argument('--weight_decay', '--wd', default=1e-4, type=float, metavar='W', help='weight decay (default: 1e-4)')
     parser.add_argument('--momentum', type=float, default=0.9,
                         metavar='M', help='Set momentum value for pytorch`s SGD optimizer. (default: 0.9)')
 
@@ -336,22 +340,7 @@ def main():
     parser.add_argument('--pause', type=int, default=0, help='model 을 load 할때 1로 설정됩니다.')
 
     args = parser.parse_args()
-    args.cuda = not args.no_cuda and torch.cuda.is_available()
     print('cuDNN version : ', torch.backends.cudnn.version())
-
-    if args.cuda:
-        try:
-            args.gpu_ids = [int(s) for s in args.gpu_ids.split(',')]
-        except ValueError:
-            raise ValueError('Argument --gpu_ids must be a comma-separated list of integers only')
-
-    if args.distributed is None and args.sync_bn is None:
-        if args.cuda and len(args.gpu_ids) > 1:
-            args.distributed = True
-            args.sync_bn = True
-        else:
-            args.distributed = False
-            args.sync_bn = False
 
     # default settings for epochs, lr and class_num of dataset.
     if args.epochs is None:

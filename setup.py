@@ -5,8 +5,5 @@ import setuptools
 setup(
     name='KHD_mammon_train',
     version='1.0',
-    install_requires=[
-        'scikit-learn',
-        'tqdm',
-    ]
+    install_requires=['scikit-learn']
 )

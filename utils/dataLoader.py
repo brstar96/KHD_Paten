@@ -1,7 +1,7 @@
 from __future__ import print_function, division
 import os, cv2, torch, time
+import numpy as np, cv
 from PIL import Image
-import pandas as pd
 import numpy as np
 import utils.custom_transforms as tr
 from torch.utils.data import Dataset, DataLoader
@@ -114,6 +114,15 @@ class MammoDataset(Dataset):
         self.mode = mode
         self.data_set_path = DATA_PATH
 
+        self.data, self.labels, self.len_data, self.len_label = self.data_loader(self.data_set_path)
+        self.LMLO, self.RMLO, self.LCC, self.RCC = self.preprocessing(self.data)
+        self.LMLO_x_data = torch.from_numpy(self.LMLO)
+        self.RMLO_x_data = torch.from_numpy(self.RMLO)
+        self.LCC_x_data = torch.from_numpy(self.LCC)
+        self.RCC_x_data = torch.from_numpy(self.RCC)
+        self.y_data = torch.from_numpy(self.labels)
+        self.x_data_views = [self.LMLO_x_data, self.RMLO_x_data, self.LCC_x_data, self.RCC_x_data]
+
         self.len = self.data.shape[0]
         self.x_data = torch.from_numpy(self.data)
         self.y_data = torch.from_numpy(self.labels)
@@ -122,15 +131,6 @@ class MammoDataset(Dataset):
         self.transforms = transforms
 
     def __getitem__(self, index):
-        self.data, self.labels, self.len_data, self.len_label = self.data_loader()
-        self.LMLO, self.RMLO, self.LCC, self.RCC = self.preprocessing(self.data)
-        self.LMLO_x_data = torch.from_numpy(self.LMLO)
-        self.RMLO_x_data = torch.from_numpy(self.RMLO)
-        self.LCC_x_data = torch.from_numpy(self.LCC)
-        self.RCC_x_data = torch.from_numpy(self.RCC )
-        self.y_data = torch.from_numpy(self.labels)
-        self.x_data_views = [self.LMLO_x_data, self.RMLO_x_data, self.LCC_x_data, self.RCC_x_data]
-
         if self.mode == 'train':
             return {'image': self.transform_tr(self.x_data_views), 'label': self.y_data}
         elif self.mode == 'val':
@@ -142,13 +142,13 @@ class MammoDataset(Dataset):
     def __len__(self):
         return self.len
 
-    def data_loader(self):
+    def data_loader(self, data_set_path):
         t = time.time()
         print('Data loading...')
         data_path = []  # data path 저장을 위한 변수
         labels = []  # 테스트 id 순서 기록
         ## 하위 데이터 path 읽기
-        for dir_name, _, _ in os.walk(self.data_set_path):
+        for dir_name, _, _ in os.walk(data_set_path):
             try:
                 data_id = dir_name.split('/')[-1]
                 int(data_id)
@@ -195,11 +195,14 @@ class MammoDataset(Dataset):
 
         return composed_transforms(sample)
 
-    def clahe(self, img_path):
-        img = cv2.imread(img_path, cv2.IMREAD_GRAYSCALE)
+    def clahe(self, img_arr):
+        vis = np.zeros((img_arr.shape[0], img_arr.shape[1]), np.float32)
+        vis2 = cv2.cvtColor(vis, cv2.COLOR_GRAY2BGR)
+
+
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        img2 = clahe.apply(img)
-        res = np.hstack((img, img2))
+        img2 = clahe.apply(img_arr)
+        res = np.hstack((img_arr, img2))
         return res  # Grayscale
 
     def postclahe(self, img):
