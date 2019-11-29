@@ -37,7 +37,7 @@ class ImageBreastModel(nn.Module):
         super(ImageBreastModel, self).__init__()
 
         self.args = args
-        self.four_view_resnet = FourViewResNet(input_channels, args)
+        self.four_view_model = FourViewModel(input_channels, args)
 
         self.fc1_lcc = nn.Linear(256, 256) # in_feature(256), out_feature(256)
         self.fc1_rcc = nn.Linear(256, 256)
@@ -53,7 +53,7 @@ class ImageBreastModel(nn.Module):
 
     def forward(self, input_image):
         h = self.all_views_gaussian_noise_layer(input_image) # 각 인풋 이미지에 가우시안 노이즈 추가
-        result = self.four_view_resnet(h) # 모델에 이미지 4장 각각 통과
+        result = self.four_view_model(h) # 모델에 이미지 4장 각각 통과
         h = self.all_views_avg_pool(result) # 4개의 result를 각각 average pooling
 
         # 활성화함수 적용
@@ -77,13 +77,13 @@ class ImageBreastModel(nn.Module):
 
         return h
 
-class FourViewResNet(nn.Module):
+class FourViewModel(nn.Module):
     def __init__(self, input_channels, args):
-        super(FourViewResNet, self).__init__()
+        super(FourViewModel, self).__init__()
 
         self.args = args
-        self.cc = initialize_model(model_name=self.args.backbone, use_pretrained=self.args.use_pretrained, input_channels = input_channels, num_classes=args)
-        self.mlo = initialize_model(model_name=self.args.backbone, use_pretrained=self.args.use_pretrained, input_channels=input_channels, num_classes=args)
+        self.cc = initialize_model(model_name=self.args.backbone, use_pretrained=self.args.use_pretrained, input_channels = input_channels, num_classes=args.class_num)
+        self.mlo = initialize_model(model_name=self.args.backbone, use_pretrained=self.args.use_pretrained, input_channels=input_channels, num_classes=args.class_num)
 
         self.model_dict = {}
         self.model_dict[VIEWS.L_CC] = self.l_cc = self.cc

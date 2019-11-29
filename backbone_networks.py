@@ -11,7 +11,7 @@ def set_parameter_requires_grad(model, feature_extracting):
 
 # If use_pretrained=True, below models are using ImageNet pretrained weights.
 def initialize_model(model_name, use_pretrained=False, input_channels=None, num_classes=None):
-    # These models are pretrained via ImageNet-1000 class
+    # If use_pretrained = True, These models are pretrained via ImageNet-1000 class
     if model_name == "resnet101":
         return models.resnet101(pretrained=use_pretrained, progress=True)
     elif model_name == "resnet152":
@@ -30,29 +30,29 @@ def initialize_model(model_name, use_pretrained=False, input_channels=None, num_
     # 아래 5개의 모델은 pretrained=None이면 전이학습을 하지 않음.
     elif model_name == "senet154":
         if use_pretrained == False:
-            return senet154(num_classes=1000, pretrained=None)
+            return senet154(num_classes=num_classes, pretrained=None)
         else:
-            return senet154(num_classes=1000, pretrained='imagenet')
+            return senet154(num_classes=num_classes, pretrained='imagenet')
     elif model_name == "se_resnet101":
         if use_pretrained == False:
-            return se_resnet101(num_classes=1000, pretrained=None)
+            return se_resnet101(num_classes=num_classes, pretrained=None)
         else:
-            return se_resnet101(num_classes=1000, pretrained='imagenet')
+            return se_resnet101(num_classes=num_classes, pretrained='imagenet')
     elif model_name == "se_resnet152":
         if use_pretrained == False:
-            return se_resnet152(num_classes=1000, pretrained=None)
+            return se_resnet152(num_classes=num_classes, pretrained=None)
         else:
-            return se_resnet152(num_classes=1000, pretrained='imagenet')
+            return se_resnet152(num_classes=num_classes, pretrained='imagenet')
     elif model_name == 'se_resnext50_32x4d':
         if use_pretrained == False:
-            return se_resnext50_32x4d(num_classes=1000, pretrained=None)
+            return se_resnext50_32x4d(num_classes=num_classes, pretrained=None)
         else:
-            return se_resnext50_32x4d(num_classes=1000, pretrained='imagenet')
+            return se_resnext50_32x4d(num_classes=num_classes, pretrained='imagenet')
     elif model_name == 'se_resnext101_32x4d':
         if use_pretrained == False:
-            return se_resnext101_32x4d(num_classes=1000, pretrained=None)
+            return se_resnext101_32x4d(num_classes=num_classes, pretrained=None)
         else:
-            return se_resnext101_32x4d(num_classes=1000, pretrained='imagenet')
+            return se_resnext101_32x4d(num_classes=num_classes, pretrained='imagenet')
     elif model_name == "resnext50_32x4d":
         # Aggregated Residual Transformation for Deep Neural Networks<https://arxiv.org/pdf/1611.05431.pdf>`
         # If progress=True, print pretrained model downloading status.
@@ -62,11 +62,11 @@ def initialize_model(model_name, use_pretrained=False, input_channels=None, num_
 
     # ImageNet pretrained efficientnet-b3, b4
     elif model_name == 'efficientnetb3':
-        return EfficientNet.from_scratch('efficientnet-b3', num_classes)
+        return EfficientNet.from_scratch(model_name='efficientnet-b3', num_classes=num_classes)
     elif model_name == 'efficientnetb4':
-        return EfficientNet.from_scratch('efficientnet-b4', num_classes)
+        return EfficientNet.from_scratch(model_name='efficientnet-b4', num_classes=num_classes)
     elif model_name == 'efficientnetb5':
-        return EfficientNet.from_scratch('efficientnet-b5', num_classes)
+        return EfficientNet.from_scratch(model_name='efficientnet-b5', num_classes=num_classes)
     else:
         print("Wrong define model parameter input.")
         raise ValueError

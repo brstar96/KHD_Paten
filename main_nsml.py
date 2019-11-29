@@ -85,7 +85,7 @@ class Trainer(object):
             raise ValueError('Argument --dataset must be `local` or `KHD_NSML`.')
 
         # Define network
-        input_channels = 2 if args.use_additional_annotation else 3
+        input_channels = 3 if args.use_additional_annotation else 2 # use_additional_annotation = True이면 3
         model = models.ImageBreastModel(args, input_channels) # 4개 모델들의 softmax값 리턴
         model.to(self.device)
 
