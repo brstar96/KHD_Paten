@@ -8,7 +8,6 @@ from sklearn.model_selection import StratifiedKFold, KFold
 from torch.utils.data import Dataset, DataLoader
 from utils.metrics import Evaluator
 from utils.dataLoader import KaKR3rdDataset, MammoDataset
-from utils.tensorboard_summary import TensorboardSummary
 from utils import lr_scheduler
 from utils.loss import buildLosses
 from utils.model_saver import Saver
@@ -17,9 +16,8 @@ from utils.RAdam import RAdam
 import models
 from torch.backends import cudnn
 from torch import optim
-# import nsml
-# from nsml.constants import DATASET_PATH, GPU_NUM
-DATASET_PATH = None # temp
+import nsml
+from nsml.constants import DATASET_PATH, GPU_NUM
 
 warnings.filterwarnings('ignore')
 
@@ -36,38 +34,36 @@ def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
-# def bind_model(model):
-#     def save(dir_name):
-#         os.makedirs(dir_name, exist_ok=True)
-#         torch.save(model.state_dict(),os.path.join(dir_name, 'model'))
-#         print('model saved!')
-#
-#     def load(dir_name):
-#         model.load_state_dict(torch.load(os.path.join(dir_name, 'model')))
-#         model.eval()
-#         print('model loaded!')
-#
-#     def infer(data): ## 해당 부분은 data loader의 infer_func을 의미
-#         X = preprocessing(data)
-#         with torch.no_grad():
-#             X = torch.from_numpy(X).float().to(device)
-#             pred = model.forward(X)
-#         print('predicted')
-#         return pred
-#     nsml.bind(save=save, load=load, infer=infer)
+def bind_model(model):
+    def save(dir_name):
+        os.makedirs(dir_name, exist_ok=True)
+        torch.save(model.state_dict(),os.path.join(dir_name, 'model'))
+        print('model saved!')
+
+    def load(dir_name):
+        model.load_state_dict(torch.load(os.path.join(dir_name, 'model')))
+        model.eval()
+        print('model loaded!')
+
+    def infer(data): ## 해당 부분은 data loader의 infer_func을 의미
+        X = preprocessing(data)
+        with torch.no_grad():
+            X = torch.from_numpy(X).float().to(device)
+            pred = model.forward(X)
+        print('predicted')
+        return pred
+
+    nsml.bind(save=save, load=load, infer=infer)
 
 class Trainer(object):
     def __init__(self, args):
         self.args = args
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        print('Total Epoches:', args.epochs)
 
         # Define Saver
         self.saver = Saver(args)
         self.saver.save_experiment_config()
-
-        # Define Tensorboard Summary
-        # self.summary = TensorboardSummary(self.saver.experiment_dir)
-        # self.writer = self.summary.create_summary()
 
         # Define Dataloader
         if args.dataset == 'local':
@@ -131,6 +127,17 @@ class Trainer(object):
         weight = None # Calculate class weight when dataset is strongly imbalanced. (see pytorch deeplabV3 code's main_local.py)
         self.criterion = buildLosses(cuda=args.cuda).build_loss(mode=args.loss_type)
         self.model, self.optimizer = model, optimizer
+        bind_model(self.model)
+
+        if args.pause:  ## test mode 일때는 여기만 접근
+            print('Inferring Start...')
+            nsml.paused(scope=locals())
+
+        if args.mode == 'train':  ### training mode 일때는 여기만 접근
+            print('Training Start...')
+
+            img_path = DATASET_PATH + '/train/'
+
 
         use_amp = False
         if has_apex and args.amp:
@@ -369,12 +376,10 @@ def main():
     # Define trainer. (Define dataloader, model, optimizer etc...)
     trainer = Trainer(args)
     print('Starting Epoch:', trainer.args.start_epoch)
-    print('Total Epoches:', trainer.args.epochs)
 
-    for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
-        trainer.training(epoch)
-        if not trainer.args.no_val and epoch % args.eval_interval == (args.eval_interval - 1):
-            trainer.validation(epoch)
+    trainer.training(args.epoch)
+    if not trainer.args.no_val and args.epoch % args.eval_interval == (args.eval_interval - 1):
+        trainer.validation(args.epoch)
 
     trainer.writer.close()
 

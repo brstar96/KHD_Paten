@@ -1,3 +1,5 @@
+# 참고용 Stratified CV + 앙상블 코드 : https://www.kaggle.com/janged/3rd-ml-month-xception-stratifiedkfold-ensemble
+
 import argparse, logging, os, torch, warnings, random
 import numpy as np
 from tqdm import tqdm
@@ -6,18 +8,16 @@ from sklearn.model_selection import StratifiedKFold, KFold
 from torch.utils.data import Dataset, DataLoader
 from utils.metrics import Evaluator
 from utils.dataLoader import KaKR3rdDataset, MammoDataset
-from utils.tensorboard_summary import TensorboardSummary
 from utils import lr_scheduler
 from utils.loss import buildLosses
 from utils.model_saver import Saver
-from backbone_networks import initialize_model
+from utils.AdamW import AdamW
+from utils.RAdam import RAdam
+import models
 from torch.backends import cudnn
 from torch import optim
-from AdamW import AdamW
-from RAdam import RAdam
-# import nsml
-# from nsml.constants import DATASET_PATH, GPU_NUM
-DATASET_PATH = None # temp
+import nsml
+from nsml.constants import DATASET_PATH, GPU_NUM
 
 warnings.filterwarnings('ignore')
 
@@ -30,18 +30,40 @@ def seed_everything(seed):
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
 
+def get_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
+
+def bind_model(model):
+    def save(dir_name):
+        os.makedirs(dir_name, exist_ok=True)
+        torch.save(model.state_dict(),os.path.join(dir_name, 'model'))
+        print('model saved!')
+
+    def load(dir_name):
+        model.load_state_dict(torch.load(os.path.join(dir_name, 'model')))
+        model.eval()
+        print('model loaded!')
+
+    def infer(data): ## 해당 부분은 data loader의 infer_func을 의미
+        X = preprocessing(data)
+        with torch.no_grad():
+            X = torch.from_numpy(X).float().to(device)
+            pred = model.forward(X)
+        print('predicted')
+        return pred
+
+    nsml.bind(save=save, load=load, infer=infer)
+
 class Trainer(object):
     def __init__(self, args):
         self.args = args
         self.device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+        print('Total Epoches:', args.epochs)
 
         # Define Saver
         self.saver = Saver(args)
         self.saver.save_experiment_config()
-
-        # Define Tensorboard Summary
-        self.summary = TensorboardSummary(self.saver.experiment_dir)
-        self.writer = self.summary.create_summary()
 
         # Define Dataloader
         if args.dataset == 'local':
@@ -72,21 +94,17 @@ class Trainer(object):
             raise ValueError('Argument --dataset must be `local` or `KHD_NSML`.')
 
         # Define network
-        model = initialize_model(model_name=args.backbone, use_pretrained=False)
+        input_channels = 3 if args.use_additional_annotation else 2 # use_additional_annotation = True이면 3
+        model = models.ImageBreastModel(args, input_channels) # 4개 모델들의 softmax값 리턴 (총 8개의 softmax)
         model.to(self.device)
 
         # Print parameters to be optimized/updated.
         print("Params to learn:")
-        if args.feature_extracting:
-            params_to_update = []
-            for name, param in model.named_parameters():
-                if param.requires_grad:
-                    params_to_update.append(param)
-                    print("\t", name)
-        else:
-            for name, param in model.named_parameters():
-                if param.requires_grad:
-                    print("\t", name)
+        params_to_update = []
+        for name, param in model.named_parameters():
+            if param.requires_grad:
+                params_to_update.append(param)
+                print("\t", name)
 
         # Define Optimizer
         if args.optimizer.lower() == 'sgd':
@@ -109,6 +127,17 @@ class Trainer(object):
         weight = None # Calculate class weight when dataset is strongly imbalanced. (see pytorch deeplabV3 code's main_local.py)
         self.criterion = buildLosses(cuda=args.cuda).build_loss(mode=args.loss_type)
         self.model, self.optimizer = model, optimizer
+        bind_model(self.model)
+
+        if args.pause:  ## test mode 일때는 여기만 접근
+            print('Inferring Start...')
+            nsml.paused(scope=locals())
+
+        if args.mode == 'train':  ### training mode 일때는 여기만 접근
+            print('Training Start...')
+
+            img_path = DATASET_PATH + '/train/'
+
 
         use_amp = False
         if has_apex and args.amp:
@@ -155,7 +184,7 @@ class Trainer(object):
 
     def training(self, epoch):
         train_loss = 0.0
-        self.model.train()
+        self.model.train() # Train모드로 전환
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
         for i, sample in enumerate(tbar):
@@ -165,7 +194,8 @@ class Trainer(object):
 
             self.scheduler(self.optimizer, i, epoch, self.best_pred)
             self.optimizer.zero_grad()
-            output = self.model(image)
+            output = self.model(image) # 각 뷰포인트마다 2개의 softmax결과 * 4개 = 8개의 softmax (python set으로 반환됨)
+            # voting해서 하나의 클래스만 남기도록 하는 부분 추가 (set의 voting)
             loss = self.criterion(output, target)
             loss.backward()
             self.optimizer.step()
@@ -176,6 +206,7 @@ class Trainer(object):
         self.writer.add_scalar('train/total_loss_epoch', train_loss, epoch)
         print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
         print('Loss: %.3f' % train_loss)
+        print()
 
         if self.args.no_val:
             # save checkpoint every epoch
@@ -235,14 +266,14 @@ class Trainer(object):
 def main():
     # Set base parameters (dataset path, backbone name etc...)
     parser = argparse.ArgumentParser(description="This code is for testing various octConv+ResNet.")
-    parser.add_argument('--backbone', type=str, default='oct_resnet50',
+    parser.add_argument('--backbone', type=str, default='oct_resnet26',
                         choices=['resnet101', 'resnet152' # Original ResNet 
                             'resnext50_32x4d', 'resnext101_32x8d', # Modified ResNet
-                            'oct_resnet50', 'oct_resnet101', 'oct_resnet152', 'oct_resnet200', # OctConv + Original ResNet
+                            'oct_resnet26', 'oct_resnet50', 'oct_resnet101', 'oct_resnet152', 'oct_resnet200', # OctConv + Original ResNet
                             'senet154', 'se_resnet101', 'se_resnet152', 'se_resnext50_32x4d', 'se_resnext101_32x4d', # Squeeze and excitation module based models
                             'efficientnetb3', 'efficientnetb4', 'efficientnetb5'], # EfficientNet models
                         help='Set backbone name')
-    parser.add_argument('--dataset', type=str, default='local',
+    parser.add_argument('--dataset', type=str, default='KHD_NSML',
                         choices=['local', 'KHD_NSML'],
                         help='Set dataset path. `local` is for testing via local device, KHD_NSML is for testing via NSML server. ')
     parser.add_argument('--workers', type=int, default=4,
@@ -274,8 +305,8 @@ def main():
                         metavar='N', help='input batch size for testing (default: auto)')
     parser.add_argument('--class_num', type=int, default=None,
                         help='Set class number. If None, class_num will be set according to dataset`s class number.')
-    parser.add_argument('--use_pretrained', type=bool, default=True) # pre-trained model 사용여부(pytorch model zoo에 있는 모델 위주로 사용 권장)
-    parser.add_argument('--feature_extracting', type=bool, default=True) #
+    parser.add_argument('--use_pretrained', type=bool, default=False) # ImageNet pre-trained model 사용여부
+    parser.add_argument('--use_additional_annotation', type=bool, default=True, help='Whether use additional annotation') # 데이터셋에 악성 종양에 대한 세그먼트 어노테이션이 있는 경우 True
 
     # Set optimizer params for training network.
     parser.add_argument('--lr', type=float, default=None,
@@ -345,12 +376,10 @@ def main():
     # Define trainer. (Define dataloader, model, optimizer etc...)
     trainer = Trainer(args)
     print('Starting Epoch:', trainer.args.start_epoch)
-    print('Total Epoches:', trainer.args.epochs)
 
-    for epoch in range(trainer.args.start_epoch, trainer.args.epochs):
-        trainer.training(epoch)
-        if not trainer.args.no_val and epoch % args.eval_interval == (args.eval_interval - 1):
-            trainer.validation(epoch)
+    trainer.training(args.epoch)
+    if not trainer.args.no_val and args.epoch % args.eval_interval == (args.eval_interval - 1):
+        trainer.validation(args.epoch)
 
     trainer.writer.close()
 

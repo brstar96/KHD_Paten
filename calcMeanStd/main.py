@@ -1,8 +1,10 @@
 import numpy as np
 from tqdm import tqdm
-import torch
+import torch, time, os
 from torch.utils import data
 from torchvision import datasets, transforms
+import nsml
+from nsml.constants import DATASET_PATH, GPU_NUM
 
 # def calcMeanStd(dataloader):
 #     tbar = tqdm(dataloader)
@@ -34,6 +36,27 @@ from torchvision import datasets, transforms
 #
 #     return mean, std0, std1
 
+def data_loader (root_path):
+    t = time.time()
+    print('Data loading...')
+    data = [] # data path 저장을 위한 변수
+    labels=[] # 테스트 id 순서 기록
+    ## 하위 데이터 path 읽기
+    for dir_name,_,_ in os.walk(root_path):
+        try:
+            data_id = dir_name.split('/')[-1]
+            int(data_id)
+        except: pass
+        else:
+            data.append(np.load(dir_name+'/mammo.npz')['arr_0'])
+            labels.append(int(data_id[0]))
+    data = np.array(data) ## list to numpy
+    labels = np.array(labels) ## list to numpy
+    print('Dataset Reading Success \n Reading time',time.time()-t,'sec')
+    print('Dataset:',data.shape,'np.array.shape(files, views, width, height)')
+    print('Labels:', labels.shape, 'each of which 0~2')
+    return data, labels
+
 def calcMeanStd(dataloader):
     """Compute the mean and sd in an online fashion
         Var[x] = E[X^2] - E^2[X]
@@ -57,7 +80,7 @@ def calcMeanStd(dataloader):
 
 def main():
     # Build pytorch dataset and batch dataloader
-    dataset = datasets.ImageFolder(root='../../2019-3rd-ml-month-with-kakr/',
+    dataset = datasets.ImageFolder(root=DATASET_PATH,
                                    transform=transforms.Compose([
                                    transforms.Resize((224, 224)),
                                    transforms.ToTensor()]))
