@@ -36,7 +36,11 @@ def get_lr(optimizer):
 def to_np(t):
     return t.cpu().detach().numpy()
 
-def bind_model(model):
+def soft_voting(probs):
+    _arrs = [probs[key] for key in probs]
+    return np.mean(np.mean(_arrs, axis=1), axis=0)
+
+def bind_model(model, args):
     def save(dir_name):
         os.makedirs(dir_name, exist_ok=True)
         torch.save(model.state_dict(),os.path.join(dir_name, 'model'))
@@ -47,13 +51,26 @@ def bind_model(model):
         model.eval()
         print('model loaded!')
 
-    def infer(data): ## 해당 부분은 data loader의 infer_func을 의미
-        # X = preprocessing(data)
-        # with torch.no_grad():
-        #     X = torch.from_numpy(X).float().to(device)
-        #     pred = model.forward(X)
-        print('predicted')
-        # return pred
+    def infer(data):  ## 해당 부분은 data loader의 infer_func을 의미
+        print(len(data))
+        print(data.shape)
+        batch = 20  # batch 사이즈 바꾸기 위해서, 단, 숫자 4 와 200 공약수여야한다.
+        print(len(data) // args.test_batch_size)
+        # ex ) 200/16 = 12.5 는 총 13번 포문이 돈다.
+        pred = []
+        for batch_num in range(len(data) // batch):
+            print("test_batch")
+
+            batch_data = data[batch_num * batch:batch_num * batch + batch]
+            X = preprocessing(batch_data)
+            print("batchnum" + str(batch_num))
+            with torch.no_grad():
+                X = torch.from_numpy(X).float().to(device)
+                pred.append(model.forward(X))
+            print('predicted')
+        return pred
+
+    nsml.bind(save=save, load=load, infer=infer)
 
     nsml.bind(save=save, load=load, infer=infer)
 
@@ -101,7 +118,7 @@ class Trainer(object):
         weight = None # Calculate class weight when dataset is strongly imbalanced. (see pytorch deeplabV3 code's main_local.py)
         self.criterion = buildLosses(cuda=args.cuda).build_loss(mode=args.loss_type)
         self.model, self.optimizer = model, optimizer
-        bind_model(self.model)
+        bind_model(self.model, args)
 
         if args.pause:  ## test mode 일때는 여기만 접근
             print('Inferring Start...')
@@ -191,7 +208,6 @@ class Trainer(object):
                     self.evaluator.reset()  # metric이 정의되어 있는 evaluator클래스 초기화 (confusion matrix 초기화 수행)
                     length_val_dataloader = len(self.validation_loader)
                     print("Start epoch validation...")
-                    val_total_correct = 0
 
                     for item in self.validation_loader:
                         images = item['image'].to(device)
@@ -298,7 +314,7 @@ def main():
     # Set optimizer params for training network.
     parser.add_argument('--lr', type=float, default=None,
                         help='Set starting learning rate. If None, lr will be set to current dataset`s lr.')
-    parser.add_argument('--lr_scheduler', type=str, default='WarmupCosineSchedule',
+    parser.add_argument('--lr_scheduler', type=str, default='WarmupCosineWithHardRestartsSchedule',
                         choices=['StepLR', 'MultiStepLR', 'WarmupCosineSchedule', 'WarmupCosineWithHardRestartsSchedule'],
                         help='Set lr scheduler mode: (default: WarmupCosineSchedule)')
     parser.add_argument('--optim', type=str, default='RAdam',
@@ -310,7 +326,6 @@ def main():
                         metavar='M', help='Set momentum value for pytorch`s SGD optimizer. (default: 0.9)')
 
     # Set params for CUDA, seed and logging
-    parser.add_argument('--no_cuda', action='store_true', default=False, help='disables CUDA training')
     parser.add_argument('--gpu_ids', type=str, default='0', help='use which gpu to train, must be a comma-separated list of integers only (default=0)')
     parser.add_argument('--seed', type=int, default=2019, metavar='S', help='random seed (default: 2019)')
 
