@@ -62,11 +62,11 @@ def initialize_model(model_name, use_pretrained=False, input_channels=None, num_
 
     # ImageNet pretrained efficientnet-b3, b4
     elif model_name == 'efficientnetb3':
-        return EfficientNet.from_pretrained('efficientnet-b3')
+        return EfficientNet.from_scratch('efficientnet-b3', num_classes)
     elif model_name == 'efficientnetb4':
-        return EfficientNet.from_pretrained('efficientnet-b4')
+        return EfficientNet.from_scratch('efficientnet-b4', num_classes)
     elif model_name == 'efficientnetb5':
-        return EfficientNet.from_pretrained('efficientnet-b5')
+        return EfficientNet.from_scratch('efficientnet-b5', num_classes)
     else:
         print("Wrong define model parameter input.")
         raise ValueError
