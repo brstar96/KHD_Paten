@@ -66,9 +66,8 @@ def preprocessing(data):
     RCC = np.concatenate((RCC, np.concatenate((RCC_clahe, RCC_postclahe), axis=0)), axis=0)
 
     print('Preprocessing complete...')
-    print('The shape of X changed', X.shape)
-    print(X)
-    return X
+    print('The shape of view changed', LMLO.shape)
+    return LMLO, RMLO, LCC, RCC
 
 def bind_model(model):
     def save(dir_name):
