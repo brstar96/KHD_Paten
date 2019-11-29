@@ -8,7 +8,6 @@ from sklearn.model_selection import StratifiedKFold, KFold
 from torch.utils.data import Dataset, DataLoader
 from utils.metrics import Evaluator
 from utils.dataLoader import KaKR3rdDataset, MammoDataset
-from utils.ImgPreprocessing.breastImgPreprocess import clahe, postclahe
 from utils import lr_scheduler
 from utils.loss import buildLosses
 from utils.model_saver import Saver
@@ -28,46 +27,11 @@ def seed_everything(seed):
     os.environ['PYTHONHASHSEED'] = str(seed)
     np.random.seed(seed)
     torch.manual_seed(seed)
-    torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
 
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
-
-
-def preprocessing(data):
-    print('Preprocessing start')
-    # 자유롭게 작성해주시면 됩니다.
-    # data = np.concatenate([np.concatenate([data[:,0],data[:,1]],axis=2)
-    #                 ,np.concatenate([data[:,2],data[:,3]],axis=2)],axis=1
-
-    # b, w, h, c = data.shape()
-    # np.zeros((w, h, c))
-
-    LMLO = data[:,0]
-    LMLO_clahe = clahe(LMLO)
-    LMLO_postclahe = postclahe(LMLO_clahe)
-    LMLO = np.concatenate((LMLO, np.concatenate((LMLO_clahe,LMLO_postclahe), axis=0)), axis=0)
-
-    RMLO = data[:, 1]
-    RMLO_clahe = clahe(RMLO)
-    RMLO_postclahe = postclahe(RMLO_clahe)
-    RMLO = np.concatenate((RMLO, np.concatenate((RMLO_clahe, RMLO_postclahe), axis=0)), axis=0)
-
-    LCC = data[:, 2]
-    LCC_clahe = clahe(LCC)
-    LCC_postclahe = postclahe(LCC_clahe )
-    LCC = np.concatenate((LCC, np.concatenate((LCC_clahe, LCC_postclahe), axis=0)), axis=0)
-
-    RCC = data[:, 3]
-    RCC_clahe = clahe(RCC)
-    RCC_postclahe = postclahe(RCC_clahe)
-    RCC = np.concatenate((RCC, np.concatenate((RCC_clahe, RCC_postclahe), axis=0)), axis=0)
-
-    print('Preprocessing complete...')
-    print('The shape of view changed', LMLO.shape)
-    return LMLO, RMLO, LCC, RCC
 
 def bind_model(model):
     def save(dir_name):
@@ -81,12 +45,12 @@ def bind_model(model):
         print('model loaded!')
 
     def infer(data): ## 해당 부분은 data loader의 infer_func을 의미
-        X = preprocessing(data)
-        with torch.no_grad():
-            X = torch.from_numpy(X).float().to(device)
-            pred = model.forward(X)
+        # X = preprocessing(data)
+        # with torch.no_grad():
+        #     X = torch.from_numpy(X).float().to(device)
+        #     pred = model.forward(X)
         print('predicted')
-        return pred
+        # return pred
 
     nsml.bind(save=save, load=load, infer=infer)
 
@@ -99,34 +63,6 @@ class Trainer(object):
         # Define Saver
         self.saver = Saver(args)
         self.saver.save_experiment_config()
-
-        # Define Dataloader
-        if args.dataset == 'local':
-            parent_dir = os.path.join(os.getcwd(), '../')
-            dataset_root_path = os.path.join(parent_dir, '/2019-3rd-ml-month-with-kakr/')
-
-            # Pytorch Data loader
-            self.train_dataset = KaKR3rdDataset(args, mode='train', DATA_PATH=os.path.join(dataset_root_path, 'train/'))
-            self.validation_dataset = KaKR3rdDataset(args, mode='val', DATA_PATH=os.path.join(dataset_root_path, 'test/'))
-            self.train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
-            self.validation_loader = DataLoader(self.validation_dataset, batch_size=args.batch_size, shuffle=True)
-            print('Dataset class : ', self.args.class_num)
-            print('Train/Val dataloader length : ' + str(len(self.train_loader)) + ', ' + str(
-                len(self.validation_loader)))
-        elif args.dataset == 'KHD_NSML':
-            img_path_train = DATASET_PATH + '/train/' #대회 당일날 주석 풀고 사용.
-            img_path_validaton = DATASET_PATH + '/validation/' # 만약 validation용 데이터셋을 제공해주지 않을 경우 train_test_split으로 나눠서 넣기
-
-            # Pytorch Data loader
-            self.train_dataset = MammoDataset(args, mode = 'train', DATA_PATH=img_path_train)
-            self.validation_dataset = MammoDataset(args, mode='val', DATA_PATH=img_path_validaton)
-            self.train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
-            self.validation_loader = DataLoader(self.validation_dataset, batch_size=args.batch_size, shuffle=True)
-            print('Dataset class : ', self.args.class_num)
-            print('Train/Val dataloader length : ' + str(len(self.train_loader)) + ', ' + str(len(self.validation_loader)))
-        else:
-            print("Invalid dataset type.")
-            raise ValueError('Argument --dataset must be `local` or `KHD_NSML`.')
 
         # Define network
         input_channels = 3 if args.use_additional_annotation else 2 # use_additional_annotation = True이면 3
@@ -170,51 +106,42 @@ class Trainer(object):
 
         if args.mode == 'train':  ### training mode 일때는 여기만 접근
             print('Training Start...')
-
             img_path = DATASET_PATH + '/train/'
 
-        use_amp = False
-        if has_apex and args.amp:
-            self.model, self.optimizer = amp.initialize(self.model, self.optimizer, opt_level='O2')
-            use_amp = True
-        if args.local_rank == 0:
-            logging.info('NVIDIA APEX {}. AMP {}.'.format(
-                'installed' if has_apex else 'not installed', 'on' if use_amp else 'off'))
+            # Define Dataloader
+            if args.dataset == 'local':
+                parent_dir = os.path.join(os.getcwd(), '../')
+                dataset_root_path = os.path.join(parent_dir, '/2019-3rd-ml-month-with-kakr/')
 
-        if args.distributed:
-            if args.sync_bn:
-                try:
-                    if has_apex:
-                        self.model = convert_syncbn_model(model)
-                    else:
-                        self.model = torch.nn.SyncBatchNorm.convert_sync_batchnorm(model)
-                    if args.local_rank == 0:
-                        logging.info('Converted model to use Synchronized BatchNorm.')
-                except Exception as e:
-                    logging.error('Failed to enable Synchronized BatchNorm. Install Apex or Torch >= 1.1')
-            if has_apex:
-                self.model = DDP(model, delay_allreduce=True)
-            else:
-                if args.local_rank == 0:
-                    logging.info("Using torch DistributedDataParallel. Install NVIDIA Apex for Apex DDP.")
-                self.model = DDP(model, device_ids=[args.local_rank])  # can use device str in Torch >= 1.1
+                # Pytorch Data loader
+                self.train_dataset = KaKR3rdDataset(args, mode='train',
+                                                    DATA_PATH=os.path.join(dataset_root_path, 'train/'))
+                self.validation_dataset = KaKR3rdDataset(args, mode='val',
+                                                         DATA_PATH=os.path.join(dataset_root_path, 'test/'))
+                self.train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
+                self.validation_loader = DataLoader(self.validation_dataset, batch_size=args.batch_size, shuffle=True)
+                print('Dataset class : ', self.args.class_num)
+                print('Train/Val dataloader length : ' + str(len(self.train_loader)) + ', ' + str(
+                    len(self.validation_loader)))
+            elif args.dataset == 'KHD_NSML':
+                img_path = DATASET_PATH + '/train/'
+                img_path_validaton = DATASET_PATH + '/validation/'  # 만약 validation용 데이터셋을 제공해주지 않을 경우 train_test_split으로 나눠서 넣기
 
-        # Resuming checkpoint
-        self.best_pred = 0.0
-        if args.resume is not None:
-            if not os.path.isfile(args.resume):
-                raise RuntimeError("=> no checkpoint found at '{}'".format(args.resume))
-            checkpoint = torch.load(args.resume)
-            args.start_epoch = checkpoint['epoch']
-            if args.cuda:
-                self.model.module.load_state_dict(checkpoint['state_dict'])
+                # Pytorch Data loader
+                self.train_dataset = MammoDataset(args, mode='train', DATA_PATH=img_path)
+                # self.validation_dataset = MammoDataset(args, mode='val', DATA_PATH=img_path_validaton)
+                self.train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
+                # self.validation_loader = DataLoader(self.validation_dataset, batch_size=args.batch_size, shuffle=True)
+                print('Dataset class : ', self.args.class_num)
+                print('Train/Val dataloader length : ' + str(len(self.train_loader)) + ', ' + str(
+                    len(self.validation_loader)))
             else:
-                self.model.load_state_dict(checkpoint['state_dict'])
-            if not args.ft:
-                self.optimizer.load_state_dict(checkpoint['optimizer'])
-            self.best_pred = checkpoint['best_pred']
-            print("=> loaded checkpoint '{}' (epoch {})"
-                  .format(args.resume, checkpoint['epoch']))
+                print("Invalid dataset type.")
+                raise ValueError('Argument --dataset must be `local` or `KHD_NSML`.')
+
+            # Train the model
+            total_step = len(self.train_loader)
+            self.training(args.epoch)
 
     def training(self, epoch):
         train_loss = 0.0
@@ -316,10 +243,6 @@ def main():
                         help='Set the checkpoint name. if None, checkname will be set to current dataset+backbone+time.')
 
     # Set hyper params for training network.
-    parser.add_argument('--base_size', type=int, default=224,
-                        help='base image size')
-    parser.add_argument('--crop_size', type=int, default=224,
-                        help='crop image size')
     parser.add_argument('--k_folds', type=int, default=5,
                         help='Set k_folds params for stratified K-fold cross validation.')
     parser.add_argument('--distributed', type=bool, default=None,
@@ -430,5 +353,6 @@ if __name__ == "__main__":
 
     SEED = 20191129
     seed_everything(SEED) # 하이퍼파라미터 테스트를 위해 모든 시드 고정
+    device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
 
     main()
