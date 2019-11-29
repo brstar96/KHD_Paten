@@ -55,10 +55,10 @@ class AllViewsGaussianNoise(nn.Module):
 
     def forward(self, x):
         return {
-            VIEWS.L_CC: self.single_add_gaussian_noise(x[VIEWS.L_CC]),
-            VIEWS.L_MLO: self.single_add_gaussian_noise(x[VIEWS.L_MLO]),
-            VIEWS.R_CC: self.single_add_gaussian_noise(x[VIEWS.R_CC]),
-            VIEWS.R_MLO: self.single_add_gaussian_noise(x[VIEWS.R_MLO]),
+            VIEWS.LMLO: self.single_add_gaussian_noise(x[VIEWS.LMLO]),
+            VIEWS.LCC: self.single_add_gaussian_noise(x[VIEWS.LCC]),
+            VIEWS.RMLO: self.single_add_gaussian_noise(x[VIEWS.RMLO]),
+            VIEWS.RCC: self.single_add_gaussian_noise(x[VIEWS.RCC]),
         }
 
     def single_add_gaussian_noise(self, single_view):

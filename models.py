@@ -39,10 +39,10 @@ class ImageBreastModel(nn.Module):
         self.args = args
         self.four_view_model = FourViewModel(input_channels, args)
 
-        self.fc1_lcc = nn.Linear(256, 256) # in_feature(256), out_feature(256)
-        self.fc1_rcc = nn.Linear(256, 256)
-        self.fc1_lmlo = nn.Linear(256, 256)
-        self.fc1_rmlo = nn.Linear(256, 256)
+        self.fc1_LMLO = nn.Linear(256, 256) # in_feature(256), out_feature(256)
+        self.fc1_RMLO = nn.Linear(256, 256)
+        self.fc1_LCC = nn.Linear(256, 256)
+        self.fc1_RCC = nn.Linear(256, 256)
         self.output_layer_lcc = layers.OutputLayer(256, (4, 2)) # in_feature(256), out_shape(4, 2)
         self.output_layer_rcc = layers.OutputLayer(256, (4, 2))
         self.output_layer_lmlo = layers.OutputLayer(256, (4, 2))
@@ -57,25 +57,25 @@ class ImageBreastModel(nn.Module):
         h = self.all_views_avg_pool(result) # 4개의 result를 각각 average pooling
 
         # 활성화함수 적용
-        h_lcc = F.relu(self.fc1_lcc(h[VIEWS.L_CC]))
-        h_rcc = F.relu(self.fc1_rcc(h[VIEWS.R_CC]))
-        h_lmlo = F.relu(self.fc1_lmlo(h[VIEWS.L_MLO]))
-        h_rmlo = F.relu(self.fc1_rmlo(h[VIEWS.R_MLO]))
+        h_LMLO = F.relu(self.fc1_LMLO(h[VIEWS.LMLO]))
+        h_RMLO = F.relu(self.fc1_RMLO(h[VIEWS.RMLO]))
+        h_LCC = F.relu(self.fc1_LCC(h[VIEWS.LCC]))
+        h_RCC = F.relu(self.fc1_RCC(h[VIEWS.RCC]))
 
         # 2개의 FC 레이어를 생성한 후 2개의 softmax 결과를 반환
-        h_lcc = self.output_layer_lcc(h_lcc) # (scalar, 2)
-        h_rcc = self.output_layer_rcc(h_rcc)
-        h_lmlo = self.output_layer_lmlo(h_lmlo)
-        h_rmlo = self.output_layer_rmlo(h_rmlo)
+        h_LMLO = self.output_layer_lcc(h_LMLO) # (scalar, 2)
+        h_RMLO = self.output_layer_rcc(h_RMLO)
+        h_LCC = self.output_layer_lmlo(h_LCC)
+        h_RCC = self.output_layer_rmlo(h_RCC)
 
         h = {
-            VIEWS.L_CC: h_lcc, # (scalar, 2)
-            VIEWS.R_CC: h_rcc,
-            VIEWS.L_MLO: h_lmlo,
-            VIEWS.R_MLO: h_rmlo,
+            VIEWS.LMLO: h_LMLO, # (scalar, 2)
+            VIEWS.RMLO: h_RMLO,
+            VIEWS.LCC: h_LCC,
+            VIEWS.RCC: h_RCC,
         }
 
-        return h
+        return h # dictionary
 
 class FourViewModel(nn.Module):
     def __init__(self, input_channels, args):
@@ -86,10 +86,10 @@ class FourViewModel(nn.Module):
         self.mlo = initialize_model(model_name=self.args.backbone, use_pretrained=self.args.use_pretrained, input_channels=input_channels, num_classes=args.class_num)
 
         self.model_dict = {}
-        self.model_dict[VIEWS.L_CC] = self.l_cc = self.cc
-        self.model_dict[VIEWS.L_MLO] = self.l_mlo = self.mlo
-        self.model_dict[VIEWS.R_CC] = self.r_cc = self.cc
-        self.model_dict[VIEWS.R_MLO] = self.r_mlo = self.mlo
+        self.model_dict[VIEWS.LMLO] = self.l_cc = self.cc
+        self.model_dict[VIEWS.LCC] = self.l_mlo = self.mlo
+        self.model_dict[VIEWS.RMLO] = self.r_cc = self.cc
+        self.model_dict[VIEWS.RCC] = self.r_mlo = self.mlo
 
     def forward(self, x):
         h_dict = {

@@ -15,6 +15,7 @@ from utils.RAdam import RAdam
 import models
 from torch.backends import cudnn
 from torch import optim
+from constants import VIEWS
 import nsml
 from nsml.constants import DATASET_PATH, GPU_NUM
 
@@ -172,12 +173,19 @@ class Trainer(object):
         for epoch in range(epochs):
             total_loss = 0
             total_correct = 0
+            loss_VIEWS = []
             for batch_idx, (images, labels) in enumerate(self.train_loader):
                 image, target = images.to(self.device), labels.to(self.device)
 
                 # Forward pass
                 outputs = self.model(image) # 각 뷰포인트마다 2개의 softmax결과 * 4개 = 8개의 softmax (python set으로 반환됨)
                 output = soft_voting(outputs) # voting해서 하나의 클래스만 남기도록 하는 부분 추가 (set의 voting)
+
+                loss_LMLO = self.criterion(outputs[VIEWS.LMLO], labels)
+                loss_RMLO = self.criterion(outputs[VIEWS.RMLO], labels)
+                loss_LCC = self.criterion(outputs[VIEWS.LCC], labels)
+                loss_RCC = self.criterion(outputs[VIEWS.RCC], labels)
+                loss_VIEWS = [loss_LMLO, loss_RMLO, loss_LCC, loss_RCC]
                 loss = self.criterion(output, labels)
 
                 # Backward pass
@@ -190,7 +198,7 @@ class Trainer(object):
                 bool_vector = predict_vector == label_vector
                 accuracy = bool_vector.sum() / len(bool_vector)
 
-                nsml.report(summary=True, step=epoch, epoch_total=epochs, loss=loss.item(), acc = accuracy)
+                nsml.report(summary=True, step=epoch, epoch_total=epochs, loss=loss.item(), acc = accuracy, loss_VIEWS = loss_VIEWS)
                 log_batch = 'Epoch {}  Batch {} / {}: Batch Loss {:2.4f} / Batch Acc {:2.4f}'.format(
                     int(epoch), int(batch_idx), len(self.train_loader), float(loss.item()), float(accuracy))
                 if batch_idx % 10 == 0: # 10스텝마다 출력

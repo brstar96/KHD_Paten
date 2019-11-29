@@ -26,28 +26,28 @@ Defines constants used in src.
 
 
 class VIEWS:
-    L_CC = "L-CC"
-    R_CC = "R-CC"
-    L_MLO = "L-MLO"
-    R_MLO = "R-MLO"
+    LMLO = "L-CC"
+    RMLO = "R-CC"
+    LCC = "L-MLO"
+    RCC = "R-MLO"
 
-    LIST = [L_CC, R_CC, L_MLO, R_MLO]
+    LIST = [LMLO, RMLO, LCC, RCC]
 
     @classmethod
     def is_cc(cls, view):
-        return view in (cls.L_CC, cls.R_CC)
+        return view in (cls.LMLO, cls.RMLO)
 
     @classmethod
     def is_mlo(cls, view):
-        return view in (cls.L_MLO, cls.R_MLO)
+        return view in (cls.LCC, cls.RCC)
 
     @classmethod
     def is_left(cls, view):
-        return view in (cls.L_CC, cls.L_MLO)
+        return view in (cls.LMLO, cls.LCC)
 
     @classmethod
     def is_right(cls, view):
-        return view in (cls.R_CC, cls.R_MLO)
+        return view in (cls.RMLO, cls.RCC)
 
 
 class VIEWANGLES:
@@ -72,8 +72,8 @@ class MODELMODES:
 
 
 INPUT_SIZE_DICT = {
-    VIEWS.L_CC: (2677, 1942),
-    VIEWS.R_CC: (2677, 1942),
-    VIEWS.L_MLO: (2974, 1748),
-    VIEWS.R_MLO: (2974, 1748),
+    VIEWS.LMLO: (2677, 1942),
+    VIEWS.RMLO: (2677, 1942),
+    VIEWS.LCC: (2974, 1748),
+    VIEWS.RCC: (2974, 1748),
 }
