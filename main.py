@@ -8,6 +8,7 @@ from sklearn.model_selection import StratifiedKFold, KFold
 from torch.utils.data import Dataset, DataLoader
 from utils.metrics import Evaluator
 from utils.dataLoader import KaKR3rdDataset, MammoDataset
+from utils.ImgPreprocessing.breastImgPreprocess import clahe, postclahe
 from utils import lr_scheduler
 from utils.loss import buildLosses
 from utils.model_saver import Saver
@@ -33,6 +34,41 @@ def seed_everything(seed):
 def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
+
+
+def preprocessing(data):
+    print('Preprocessing start')
+    # 자유롭게 작성해주시면 됩니다.
+    # data = np.concatenate([np.concatenate([data[:,0],data[:,1]],axis=2)
+    #                 ,np.concatenate([data[:,2],data[:,3]],axis=2)],axis=1
+
+    # b, w, h, c = data.shape()
+    # np.zeros((w, h, c))
+
+    LMLO = data[:,0]
+    LMLO_clahe = clahe(LMLO)
+    LMLO_postclahe = postclahe(LMLO_clahe)
+    LMLO = np.concatenate((LMLO, np.concatenate((LMLO_clahe,LMLO_postclahe), axis=0)), axis=0)
+
+    RMLO = data[:, 1]
+    RMLO_clahe = clahe(RMLO)
+    RMLO_postclahe = postclahe(RMLO_clahe)
+    RMLO = np.concatenate((RMLO, np.concatenate((RMLO_clahe, RMLO_postclahe), axis=0)), axis=0)
+
+    LCC = data[:, 2]
+    LCC_clahe = clahe(LCC)
+    LCC_postclahe = postclahe(LCC_clahe )
+    LCC = np.concatenate((LCC, np.concatenate((LCC_clahe, LCC_postclahe), axis=0)), axis=0)
+
+    RCC = data[:, 3]
+    RCC_clahe = clahe(RCC)
+    RCC_postclahe = postclahe(RCC_clahe)
+    RCC = np.concatenate((RCC, np.concatenate((RCC_clahe, RCC_postclahe), axis=0)), axis=0)
+
+    print('Preprocessing complete...')
+    print('The shape of X changed', X.shape)
+    print(X)
+    return X
 
 def bind_model(model):
     def save(dir_name):
@@ -137,7 +173,6 @@ class Trainer(object):
             print('Training Start...')
 
             img_path = DATASET_PATH + '/train/'
-
 
         use_amp = False
         if has_apex and args.amp:
