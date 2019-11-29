@@ -33,6 +33,9 @@ def get_lr(optimizer):
     for param_group in optimizer.param_groups:
         return param_group['lr']
 
+def to_np(t):
+    return t.cpu().detach().numpy()
+
 def bind_model(model):
     def save(dir_name):
         os.makedirs(dir_name, exist_ok=True)
@@ -143,41 +146,69 @@ class Trainer(object):
             total_step = len(self.train_loader)
             self.training(args.epoch)
 
-    def training(self, epoch):
-        train_loss = 0.0
+    def training(self, epochs):
         self.model.train() # Train모드로 전환
-        tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
-        for i, sample in enumerate(tbar):
-            image, target = sample['image'], sample['label']
-            if self.args.cuda:
-                image, target = image.to(self.device), target.to(self.device)
+        for epoch in range(epochs):
+            total_loss = 0
+            total_correct = 0
+            for batch_idx, (images, labels) in enumerate(self.train_loader):
+                image, target = images.to(self.device), labels.to(self.device)
 
-            self.scheduler(self.optimizer, i, epoch, self.best_pred)
-            self.optimizer.zero_grad()
-            output = self.model(image) # 각 뷰포인트마다 2개의 softmax결과 * 4개 = 8개의 softmax (python set으로 반환됨)
-            # voting해서 하나의 클래스만 남기도록 하는 부분 추가 (set의 voting)
-            loss = self.criterion(output, target)
-            loss.backward()
-            self.optimizer.step()
-            train_loss += loss.item()
-            tbar.set_description('Train loss: %.3f' % (train_loss / (i + 1)))
-            self.writer.add_scalar('train/total_loss_iter', loss.item(), i + num_img_tr * epoch)
+                # Forward pass
+                outputs = self.model(image) # 각 뷰포인트마다 2개의 softmax결과 * 4개 = 8개의 softmax (python set으로 반환됨)
+                output = soft_voting(outputs) # voting해서 하나의 클래스만 남기도록 하는 부분 추가 (set의 voting)
+                loss = self.criterion(output, labels)
 
-        self.writer.add_scalar('train/total_loss_epoch', train_loss, epoch)
-        print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
-        print('Loss: %.3f' % train_loss)
-        print()
+                # Backward pass
+                self.optimizer.zero_grad()
+                loss.backward()
+                self.optimizer.step()
 
-        if self.args.no_val:
-            # save checkpoint every epoch
-            is_best = False
-            self.saver.save_checkpoint({
-                'epoch': epoch + 1,
-                'state_dict': self.model.module.state_dict(),
-                'optimizer': self.optimizer.state_dict(),
-                'best_pred': self.best_pred,
-            }, is_best)
+                predict_vector = np.argmax(to_np(output), axis=1)
+                label_vector = to_np(labels)
+                bool_vector = predict_vector == label_vector
+                accuracy = bool_vector.sum() / len(bool_vector)
+
+                nsml.report(summary=True, step=epoch, epoch_total=epochs, loss=loss.item(), acc = accuracy)
+                log_batch = 'Epoch {}  Batch {} / {}: Batch Loss {:2.4f} / Batch Acc {:2.4f}'.format(
+                    int(epoch), int(batch_idx), len(self.train_loader), float(loss.item()), float(accuracy))
+                if batch_idx % 10 == 0: # 10스텝마다 출력
+                    print(log_batch)
+
+                total_loss += loss.item()
+                total_correct += bool_vector.sum()
+
+            nsml.report(summary=True, step=epoch, epoch_total=epochs, loss=total_loss.item(), acc = total_correct / num_img_tr)
+            log_epoch = 'Epoch {} / {}: Loss {:2.4f} / Epoch Acc {:2.4f}'.format(
+                epoch, epochs, total_loss / num_img_tr, total_correct / num_img_tr)
+            if epoch / 2 == 0:
+                print(log_epoch)
+
+            if epoch / 5 == 0:
+                with torch.no_grad():
+                    self.model.eval()
+                    self.evaluator.reset()  # metric이 정의되어 있는 evaluator클래스 초기화 (confusion matrix 초기화 수행)
+                    length_val_dataloader = len(self.validation_loader)
+                    print("Start epoch validation...")
+                    val_total_correct = 0
+
+                    for item in self.validation_loader:
+                        images = item['image'].to(device)
+                        labels = item['label'].to(device)
+
+                        outputs = self.model(images)  # 각 뷰포인트마다 2개의 softmax결과 * 4개 = 8개의 softmax (python set으로 반환됨)
+                        output = soft_voting(outputs)  # voting해서 하나의 클래스만 남기도록 하는 부분 추가 (set의 voting)
+
+                        predict_vector = np.argmax(to_np(output), axis=1)
+                        label_vector = to_np(labels)
+                        bool_vector = predict_vector == label_vector
+                        accuracy = bool_vector.sum() / len(bool_vector)
+
+                        log_validacc = 'Validation Acc of the model on {} images : {}'.format(length_val_dataloader, accuracy)
+                        nsml.report(summary=True, step=epoch, epoch_total=epochs, acc=accuracy)
+                        print(log_validacc)
+
 
     def validation(self, epoch):
         self.model.eval()

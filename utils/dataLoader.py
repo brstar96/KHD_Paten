@@ -132,9 +132,9 @@ class MammoDataset(Dataset):
         self.x_data_views = [self.LMLO_x_data, self.RMLO_x_data, self.LCC_x_data, self.RCC_x_data]
 
         if self.mode == 'train':
-            return self.transform_tr(self.x_data_views )
+            return {'image': self.transform_tr(self.x_data_views), 'label': self.y_data}
         elif self.mode == 'val':
-            return self.transform_val(self.x_data_views )
+            return {'image' : self.transform_val(self.x_data_views), 'label' : self.y_data}
         else:
             print("Invalid params input")
             raise NotImplementedError
