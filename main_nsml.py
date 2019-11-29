@@ -32,6 +32,10 @@ def seed_everything(seed):
     torch.cuda.manual_seed(seed)
     torch.backends.cudnn.deterministic = True
 
+def get_lr(optimizer):
+    for param_group in optimizer.param_groups:
+        return param_group['lr']
+
 # def bind_model(model):
 #     def save(dir_name):
 #         os.makedirs(dir_name, exist_ok=True)
@@ -62,8 +66,8 @@ class Trainer(object):
         self.saver.save_experiment_config()
 
         # Define Tensorboard Summary
-        self.summary = TensorboardSummary(self.saver.experiment_dir)
-        self.writer = self.summary.create_summary()
+        # self.summary = TensorboardSummary(self.saver.experiment_dir)
+        # self.writer = self.summary.create_summary()
 
         # Define Dataloader
         if args.dataset == 'local':
@@ -95,7 +99,7 @@ class Trainer(object):
 
         # Define network
         input_channels = 3 if args.use_additional_annotation else 2 # use_additional_annotation = True이면 3
-        model = models.ImageBreastModel(args, input_channels) # 4개 모델들의 softmax값 리턴
+        model = models.ImageBreastModel(args, input_channels) # 4개 모델들의 softmax값 리턴 (총 8개의 softmax)
         model.to(self.device)
 
         # Print parameters to be optimized/updated.
@@ -173,7 +177,7 @@ class Trainer(object):
 
     def training(self, epoch):
         train_loss = 0.0
-        self.model.train()
+        self.model.train() # Train모드로 전환
         tbar = tqdm(self.train_loader)
         num_img_tr = len(self.train_loader)
         for i, sample in enumerate(tbar):
@@ -195,6 +199,7 @@ class Trainer(object):
         self.writer.add_scalar('train/total_loss_epoch', train_loss, epoch)
         print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
         print('Loss: %.3f' % train_loss)
+        print()
 
         if self.args.no_val:
             # save checkpoint every epoch
@@ -261,7 +266,7 @@ def main():
                             'senet154', 'se_resnet101', 'se_resnet152', 'se_resnext50_32x4d', 'se_resnext101_32x4d', # Squeeze and excitation module based models
                             'efficientnetb3', 'efficientnetb4', 'efficientnetb5'], # EfficientNet models
                         help='Set backbone name')
-    parser.add_argument('--dataset', type=str, default='local',
+    parser.add_argument('--dataset', type=str, default='KHD_NSML',
                         choices=['local', 'KHD_NSML'],
                         help='Set dataset path. `local` is for testing via local device, KHD_NSML is for testing via NSML server. ')
     parser.add_argument('--workers', type=int, default=4,
