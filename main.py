@@ -209,51 +209,50 @@ class Trainer(object):
                         nsml.report(summary=True, step=epoch, epoch_total=epochs, acc=accuracy)
                         print(log_validacc)
 
-
-    def validation(self, epoch):
-        self.model.eval()
-        self.evaluator.reset() # metric이 정의되어 있는 evaluator클래스 초기화 (confusion matrix 초기화 수행)
-
-        tbar = tqdm(self.validation_loader, desc='\r')
-        test_loss = 0.0
-        for i, sample in enumerate(tbar):
-            image, target = sample['image'], sample['label']
-            if self.args.cuda:
-                # image, target = image.cuda(), target.cuda()
-                image, target = image.to(self.device), target.to(self.device)
-            with torch.no_grad():
-                output = self.model(image)
-            loss = self.criterion(output, target)
-            test_loss += loss.item()
-            tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
-            pred = output.data.cpu().numpy()
-            target = target.cpu().numpy()
-            pred = np.argmax(pred, axis=1)
-
-            # Add batch sample into evaluator
-            self.evaluator.add_batch(target, pred)
-
-        # Print validation log during the training
-        F1 = self.evaluator.F1_Score()
-        Acc_class = self.evaluator.Accuracy_Class()
-        self.writer.add_scalar('val/mIoU', F1, epoch)
-        self.writer.add_scalar('val/Acc', Acc_class, epoch)
-        print('Validation:')
-        print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
-        print("F1-Score:{}, Acc_class:{}".format(F1, Acc_class))
-        print('Loss: %.3f' % test_loss)
-
-        # F1 metric 성능에 따라 제일 좋은 모델의 checkpoint를 저장
-        new_pred = F1
-        if new_pred > self.best_pred:
-            is_best = True
-            self.best_pred = new_pred
-            self.saver.save_checkpoint({
-                'epoch': epoch + 1,
-                'state_dict': self.model.module.state_dict(),
-                'optimizer': self.optimizer.state_dict(),
-                'best_pred': self.best_pred,
-            }, is_best)
+    # def validation(self, epoch):
+    #     self.model.eval()
+    #     self.evaluator.reset() # metric이 정의되어 있는 evaluator클래스 초기화 (confusion matrix 초기화 수행)
+    #
+    #     tbar = tqdm(self.validation_loader, desc='\r')
+    #     test_loss = 0.0
+    #     for i, sample in enumerate(tbar):
+    #         image, target = sample['image'], sample['label']
+    #         if self.args.cuda:
+    #             # image, target = image.cuda(), target.cuda()
+    #             image, target = image.to(self.device), target.to(self.device)
+    #         with torch.no_grad():
+    #             output = self.model(image)
+    #         loss = self.criterion(output, target)
+    #         test_loss += loss.item()
+    #         tbar.set_description('Test loss: %.3f' % (test_loss / (i + 1)))
+    #         pred = output.data.cpu().numpy()
+    #         target = target.cpu().numpy()
+    #         pred = np.argmax(pred, axis=1)
+    #
+    #         # Add batch sample into evaluator
+    #         self.evaluator.add_batch(target, pred)
+    #
+    #     # Print validation log during the training
+    #     F1 = self.evaluator.F1_Score()
+    #     Acc_class = self.evaluator.Accuracy_Class()
+    #     self.writer.add_scalar('val/mIoU', F1, epoch)
+    #     self.writer.add_scalar('val/Acc', Acc_class, epoch)
+    #     print('Validation:')
+    #     print('[Epoch: %d, numImages: %5d]' % (epoch, i * self.args.batch_size + image.data.shape[0]))
+    #     print("F1-Score:{}, Acc_class:{}".format(F1, Acc_class))
+    #     print('Loss: %.3f' % test_loss)
+    #
+    #     # F1 metric 성능에 따라 제일 좋은 모델의 checkpoint를 저장
+    #     new_pred = F1
+    #     if new_pred > self.best_pred:
+    #         is_best = True
+    #         self.best_pred = new_pred
+    #         self.saver.save_checkpoint({
+    #             'epoch': epoch + 1,
+    #             'state_dict': self.model.module.state_dict(),
+    #             'optimizer': self.optimizer.state_dict(),
+    #             'best_pred': self.best_pred,
+    #         }, is_best)
 
 def main():
     # Set base parameters (dataset path, backbone name etc...)
@@ -366,10 +365,9 @@ def main():
     print('Starting Epoch:', trainer.args.start_epoch)
 
     trainer.training(args.epoch)
-    if not trainer.args.no_val and args.epoch % args.eval_interval == (args.eval_interval - 1):
-        trainer.validation(args.epoch)
+    # if not trainer.args.no_val and args.epoch % args.eval_interval == (args.eval_interval - 1):
+    #     trainer.validation(args.epoch)
 
-    trainer.writer.close()
 
 if __name__ == "__main__":
     try:
