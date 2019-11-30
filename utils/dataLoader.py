@@ -155,7 +155,7 @@ class MammoDataset(Dataset):
         return composed_transforms(sample)
 
     def clahe(self, img_arr):
-        print("shape of img_arr[0,:] : ", img_arr.shape) # (410, 333)
+        print("shape of img_arr : ", img_arr.shape) # (1800, 410, 333)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
         PILim = Image.fromarray(img_arr) # [0,:]
         res = clahe.apply(np.array(PILim))
@@ -182,26 +182,29 @@ class MammoDataset(Dataset):
 
     def preprocessing(self, data):
         print('Preprocessing start')
-        LMLO = data[0,:,:][0] # (410, 333)
+        print("shape of data : ", data)
+        LMLO = data[:,0,:,:] # (1800, 410, 333)
+        print(LMLO)
+        print("shape of LMLO", LMLO.shape)
         LMLO_clahe = self.clahe(LMLO) # (410, 333)
         LMLO_postclahe = self.postclahe(LMLO_clahe) # (410, 333)
-        LMLO = np.concatenate((LMLO, np.concatenate((LMLO_clahe, LMLO_postclahe), axis=0)), axis=0)
-        print(LMLO.shape)
 
-        RMLO = data[1,:,:][0]
+        final_LMLO = np.array(cv2.merge([LMLO, LMLO_clahe, LMLO_postclahe])).astype(np.float32).transpose((2, 0, 1)) # (3, 410, 333)
+
+        RMLO = data[:,1,:,:]
         RMLO_clahe = self.clahe(RMLO)
         RMLO_postclahe = self.postclahe(RMLO_clahe)
-        RMLO = np.concatenate((RMLO, np.concatenate((RMLO_clahe, RMLO_postclahe), axis=0)), axis=0)
+        RMLO = np.concatenate((RMLO, np.concatenate((RMLO_clahe, RMLO_postclahe), axis=1)), axis=1)
 
-        LCC = data[2,:,:][0]
+        LCC = data[:,2,:,:]
         LCC_clahe = self.clahe(LCC)
         LCC_postclahe = self.postclahe(LCC_clahe)
-        LCC = np.concatenate((LCC, np.concatenate((LCC_clahe, LCC_postclahe), axis=0)), axis=0)
+        LCC = np.concatenate((LCC, np.concatenate((LCC_clahe, LCC_postclahe), axis=1)), axis=1)
 
-        RCC = data[3,:,:][0]
+        RCC = data[:,3,:,:]
         RCC_clahe = self.clahe(RCC)
         RCC_postclahe = self.postclahe(RCC_clahe)
-        RCC = np.concatenate((RCC, np.concatenate((RCC_clahe, RCC_postclahe), axis=0)), axis=0)
+        RCC = np.concatenate((RCC, np.concatenate((RCC_clahe, RCC_postclahe), axis=1)), axis=1)
 
         print('Preprocessing complete...')
         print('The shape of view changed', LMLO.shape)
