@@ -1,6 +1,6 @@
 # 참고용 Stratified CV + 앙상블 코드 : https://www.kaggle.com/janged/3rd-ml-month-xception-stratifiedkfold-ensemble
 
-import argparse, os, torch, warnings, random
+import argparse, os, torch, warnings, random, time
 import numpy as np
 from datetime import datetime
 from sklearn.model_selection import StratifiedKFold, KFold
@@ -8,8 +8,8 @@ import torch.nn as nn
 from torch.utils.data import Dataset, DataLoader
 from utils.metrics import Evaluator
 from utils.dataLoader import KaKR3rdDataset, MammoDataset
-from utils import lr_scheduler
-from utils.loss import buildLosses
+from utils.lr_scheduler import defineLRScheduler
+from sklearn.model_selection import train_test_split
 from utils.AdamW import AdamW
 from utils.RAdam import RAdam
 import models
@@ -40,6 +40,34 @@ def to_np(t):
 def soft_voting(probs):
     _arrs = [probs[key] for key in probs]
     return np.mean(np.mean(_arrs, axis=1), axis=0)
+
+def data_loader(data_set_path):
+    t = time.time()
+    print('Data loading...')
+    data_path = []  # data path 저장을 위한 변수
+    labels = []  # 테스트 id 순서 기록
+    ## 하위 데이터 path 읽기
+    for dir_name, _, _ in os.walk(data_set_path):
+        try:
+            data_id = dir_name.split('/')[-1]
+            int(data_id)
+        except:
+            pass
+        else:
+            data_path.append(dir_name)
+            labels.append(int(data_id[0]))
+
+    ## 데이터만 읽기
+    data = []  # img저장을 위한 list
+    for d_path in data_path:
+        sample = np.load(d_path + '/mammo.npz')['arr_0']
+        data.append(sample)
+    data = np.array(data)  ## list to numpy
+
+    print('Dataset Reading Success \n Reading time', time.time() - t, 'sec')
+    print('Dataset:', data.shape, 'np.array.shape(files, views, width, height)')
+
+    return data, labels, len(data), len(labels)  # Numpy arr과 정답 클래스
 
 def bind_model(model, args):
     def save(dir_name):
@@ -142,38 +170,37 @@ class Trainer(object):
                 self.train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
                 self.validation_loader = DataLoader(self.validation_dataset, batch_size=args.batch_size, shuffle=True)
                 print('Dataset class : ', self.args.class_num)
-                print('Train/Val dataloader length : ' + str(len(self.train_loader)) + ', ' + str(
-                    len(self.validation_loader)))
+                print('Train/Val dataloader length : ' + str(len(self.train_dataset)) + ', ' + str(len(self.validation_dataset)))
             elif args.dataset == 'KHD_NSML':
                 img_path = DATASET_PATH + '/train/'
                 img_path_validaton = DATASET_PATH + '/validation/'  # 만약 validation용 데이터셋을 제공해주지 않을 경우 train_test_split으로 나눠서 넣기
 
                 # Pytorch Data loader
-                self.train_dataset = MammoDataset(args, mode='train', DATA_PATH=img_path)
-                # self.validation_dataset = MammoDataset(args, mode='val', DATA_PATH=img_path_validaton)
+                data, labels, length_data, length_labels = data_loader(img_path)
+                X_train, X_test, Y_train, Y_test = train_test_split(data, labels, test_size=0.1, random_state=2019)
+
+                self.train_dataset = MammoDataset(args, mode='train', data=X_train, labels=X_test, len_data=len(X_train), len_label=len(X_test))
+                self.validation_dataset = MammoDataset(args, mode='val', data=Y_train, labels=Y_test, len_data=len(Y_train), len_label=len(Y_test))
                 self.train_loader = DataLoader(self.train_dataset, batch_size=args.batch_size, shuffle=True)
-                # self.validation_loader = DataLoader(self.validation_dataset, batch_size=args.batch_size, shuffle=True)
+                self.validation_loader = DataLoader(self.validation_dataset, batch_size=args.batch_size, shuffle=True)
                 print('Dataset class : ', self.args.class_num)
-                print('Train/Val dataloader length : ' + str(len(self.train_loader)) + ', ' + str(
-                    len(self.validation_loader)))
+                print('Train/Val dataset length : ' + str(len(self.train_dataset)) + str(len(self.validation_dataset)))
             else:
                 print("Invalid dataset type.")
                 raise ValueError('Argument --dataset must be `local` or `KHD_NSML`.')
 
             # Define learning rate scheduler
-            self.scheduler = lr_scheduler.defineLRScheduler(args, optimizer, len(self.train_loader))
+            self.scheduler = defineLRScheduler(args, optimizer, len(self.train_dataset))
 
             # Train the model
-            total_step = len(self.train_loader)
             self.training(args.epoch)
 
     def training(self, epochs):
         self.model.train() # Train모드로 전환
-        num_img_tr = len(self.train_loader)
+        num_img_tr = len(self.train_dataset)
         for epoch in range(epochs):
             total_loss = 0
             total_correct = 0
-            loss_VIEWS = []
             for batch_idx, (images, labels) in enumerate(self.train_loader):
                 image, target = images.to(self.device), labels.to(self.device)
 
@@ -200,7 +227,7 @@ class Trainer(object):
 
                 nsml.report(summary=True, step=epoch, epoch_total=epochs, loss=loss.item(), acc = accuracy, loss_VIEWS = loss_VIEWS)
                 log_batch = 'Epoch {}  Batch {} / {}: Batch Loss {:2.4f} / Batch Acc {:2.4f}'.format(
-                    int(epoch), int(batch_idx), len(self.train_loader), float(loss.item()), float(accuracy))
+                    int(epoch), int(batch_idx), len(self.train_dataset), float(loss.item()), float(accuracy))
                 if batch_idx % 10 == 0: # 10스텝마다 출력
                     print(log_batch)
 
@@ -217,7 +244,7 @@ class Trainer(object):
                 with torch.no_grad():
                     self.model.eval()
                     self.evaluator.reset()  # metric이 정의되어 있는 evaluator클래스 초기화 (confusion matrix 초기화 수행)
-                    length_val_dataloader = len(self.validation_loader)
+                    length_val_dataloader = len(self.validation_dataset)
                     print("Start epoch validation...")
 
                     for item in self.validation_loader:

@@ -108,23 +108,19 @@ class KaKR3rdDataset(Dataset):
 
 # KHD Mammo dataset을 위한 데이터로더
 class MammoDataset(Dataset):
-    def __init__(self, args, mode, DATA_PATH):
+    def __init__(self, args, mode, data, labels, len_data, len_label):
         self.args = args
         self.mode = mode
-        self.data_set_path = DATA_PATH
-
-        self.data, self.labels, self.len_data, self.len_label = self.data_loader(self.data_set_path)
+        self.data, self.labels, self.len_data, self.len_label = data, labels, len_data, len_label
         self.LMLO, self.RMLO, self.LCC, self.RCC = self.preprocessing(self.data)
-        self.LMLO_x_data = torch.from_numpy(self.LMLO)
-        self.RMLO_x_data = torch.from_numpy(self.RMLO)
-        self.LCC_x_data = torch.from_numpy(self.LCC)
-        self.RCC_x_data = torch.from_numpy(self.RCC)
-        self.y_data = torch.from_numpy(self.labels)
-        self.x_data_views = [self.LMLO_x_data, self.RMLO_x_data, self.LCC_x_data, self.RCC_x_data]
-
-        self.len = self.data.shape[0]
-        self.x_data = torch.from_numpy(self.data)
-        self.y_data = torch.from_numpy(self.labels)
+        # self.LMLO_x_data = torch.from_numpy(self.LMLO)
+        # self.RMLO_x_data = torch.from_numpy(self.RMLO)
+        # self.LCC_x_data = torch.from_numpy(self.LCC)
+        # self.RCC_x_data = torch.from_numpy(self.RCC)
+        # self.y_data = torch.from_numpy(self.labels)
+        # self.x_data_views = [self.LMLO_x_data, self.RMLO_x_data, self.LCC_x_data, self.RCC_x_data]
+        self.x_data_views = [self.LMLO, self.RMLO, self.LCC, self.RCC]
+        self.y_data = self.labels
 
         # 전처리를 위한 transforms 초기화
         self.transforms = transforms
@@ -139,48 +135,12 @@ class MammoDataset(Dataset):
             raise NotImplementedError
 
     def __len__(self):
-        return self.len
-
-    def data_loader(self, data_set_path):
-        t = time.time()
-        print('Data loading...')
-        data_path = []  # data path 저장을 위한 변수
-        labels = []  # 테스트 id 순서 기록
-        ## 하위 데이터 path 읽기
-        for dir_name, _, _ in os.walk(data_set_path):
-            try:
-                data_id = dir_name.split('/')[-1]
-                int(data_id)
-            except:
-                pass
-            else:
-                data_path.append(dir_name)
-                labels.append(int(data_id[0]))
-
-        ## 데이터만 읽기
-        data = []  # img저장을 위한 list
-        for d_path in data_path:
-            sample = np.load(d_path + '/mammo.npz')['arr_0']
-            data.append(sample)
-        data = np.array(data)  ## list to numpy
-
-        print('Dataset Reading Success \n Reading time', time.time() - t, 'sec')
-        print('Dataset:', data.shape, 'np.array.shape(files, views, width, height)')
-
-        return data, labels, len(data), len(labels)  # Numpy arr과 정답 클래스
-
-    def _make_img_gt_point_pair(self, index):
-        _img = Image.open(self.x_data[index]).convert('RGB')
-        _target = self.y_data[index]
-        return _img, _target
+        return self.len_data
 
     # custom_transforms.py의 전처리 항목을 적용한 transforms.Compose 클래스 반환
     def transform_tr(self, sample):
         composed_transforms = transforms.Compose([
             tr.RandomHorizontalFlip(),
-            # tr.RandomScaleCrop(base_size=self.args.base_size, crop_size=self.args.crop_size),
-            # tr.FixScaleCrop(crop_size=self.args.crop_size),
-            # tr.RandomGaussianBlur(),
             tr.Normalize(mean=(0, 0, 0), std=(1, 1, 1)),
             tr.ToTensor()])
 
@@ -195,13 +155,10 @@ class MammoDataset(Dataset):
         return composed_transforms(sample)
 
     def clahe(self, img_arr):
-
-        PILim = Image.fromarray(img_arr)
-        imcv = np.asarray(PILim.convert('L'))
-
+        print("shape of img_arr[0,:] : ", img_arr.shape) # (410, 333)
         clahe = cv2.createCLAHE(clipLimit=2.0, tileGridSize=(8, 8))
-        img2 = clahe.apply(imcv)
-        res = np.hstack((imcv, img2))
+        PILim = Image.fromarray(img_arr) # [0,:]
+        res = clahe.apply(np.array(PILim))
         return res  # Grayscale
 
     def postclahe(self, img):
@@ -225,22 +182,23 @@ class MammoDataset(Dataset):
 
     def preprocessing(self, data):
         print('Preprocessing start')
-        LMLO = data[:, 0]
-        LMLO_clahe = self.clahe(LMLO)
-        LMLO_postclahe = self.postclahe(LMLO_clahe)
+        LMLO = data[0,:,:][0] # (410, 333)
+        LMLO_clahe = self.clahe(LMLO) # (410, 333)
+        LMLO_postclahe = self.postclahe(LMLO_clahe) # (410, 333)
         LMLO = np.concatenate((LMLO, np.concatenate((LMLO_clahe, LMLO_postclahe), axis=0)), axis=0)
+        print(LMLO.shape)
 
-        RMLO = data[:, 1]
+        RMLO = data[1,:,:][0]
         RMLO_clahe = self.clahe(RMLO)
         RMLO_postclahe = self.postclahe(RMLO_clahe)
         RMLO = np.concatenate((RMLO, np.concatenate((RMLO_clahe, RMLO_postclahe), axis=0)), axis=0)
 
-        LCC = data[:, 2]
+        LCC = data[2,:,:][0]
         LCC_clahe = self.clahe(LCC)
         LCC_postclahe = self.postclahe(LCC_clahe)
         LCC = np.concatenate((LCC, np.concatenate((LCC_clahe, LCC_postclahe), axis=0)), axis=0)
 
-        RCC = data[:, 3]
+        RCC = data[3,:,:][0]
         RCC_clahe = self.clahe(RCC)
         RCC_postclahe = self.postclahe(RCC_clahe)
         RCC = np.concatenate((RCC, np.concatenate((RCC_clahe, RCC_postclahe), axis=0)), axis=0)

@@ -161,6 +161,7 @@ if __name__ == '__main__':
 
     random_seed = 2019
     device = torch.device('cuda:0' if torch.cuda.is_available() else 'cpu')
+    # model = se_resnet101(pretrained=False)
     model = shufflenet_v2_x2_0(pretrained=False)
     model.to(device)
 
