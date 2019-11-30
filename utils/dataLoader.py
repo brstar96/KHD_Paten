@@ -183,7 +183,7 @@ class MammoDataset(Dataset):
     def preprocessing(self, data):
         print('Preprocessing start')
         # 11/30일 이슈 : 아래 LMLO의 shape를 찍어보면 (410, 333)이 나오나, clahe()로 넘긴 직후 shape를 찍어보면 (1800, 410, 333)이 나오는 버그(미해결)
-        LMLO = data[:,0,:,:] # (410, 333) - 범위로 인덱싱하지 않아서 생긴 문제인지 확인할것.
+        LMLO = data[:,0] # (1800, 1, 410, 333) - 범위로 인덱싱하지 않아서 생긴 문제인지 확인할것.
         print('shape of LMLO : ', LMLO.shape)
         LMLO_clahe = self.clahe(LMLO) # (410, 333)
         print('shape of LMLO_clahe : ', LMLO_clahe.shape)
@@ -191,17 +191,17 @@ class MammoDataset(Dataset):
         print('shape of LMLO_postclahe : ', LMLO_postclahe.shape)
         final_LMLO = np.array(cv2.merge([LMLO, LMLO_clahe, LMLO_postclahe])).astype(np.float32).transpose((2, 0, 1)) # (3, 410, 333)
 
-        RMLO = data[:,1,:,:] # (410, 333)
+        RMLO = data[:,1] # (1800, 1, 410, 333)
         RMLO_clahe = self.clahe(RMLO)
         RMLO_postclahe = self.postclahe(RMLO_clahe)
         final_RMLO = np.array(cv2.merge([RMLO, RMLO_clahe, RMLO_postclahe])).astype(np.float32).transpose((2, 0, 1))  # (3, 410, 333)
 
-        LCC = data[:,2,:,:]
+        LCC = data[:,2] # (1800, 1, 410, 333)
         LCC_clahe = self.clahe(LCC)
         LCC_postclahe = self.postclahe(LCC_clahe)
         final_LCC = np.array(cv2.merge([LCC, LCC_clahe, LCC_postclahe])).astype(np.float32).transpose((2, 0, 1))  # (3, 410, 333)
 
-        RCC = data[:,3,:,:]
+        RCC = data[:,3] # (1800, 1, 410, 333)
         RCC_clahe = self.clahe(RCC)
         RCC_postclahe = self.postclahe(RCC_clahe)
         final_RCC = np.array(cv2.merge([RCC, RCC_clahe, RCC_postclahe])).astype(np.float32).transpose((2, 0, 1))  # (3, 410, 333)
